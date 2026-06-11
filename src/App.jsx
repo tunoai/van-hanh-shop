@@ -302,6 +302,78 @@ function App() {
     reader.readAsArrayBuffer(file);
   };
 
+  const inventoryFileInputRef = React.useRef(null);
+
+  const handleInventoryUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+      if (rows.length <= 1) {
+        alert('File không có dữ liệu hợp lệ!');
+        return; 
+      }
+      
+      const batch = writeBatch(db);
+      let updatedCount = 0;
+
+      const normalizeHeader = (h) => String(h).toUpperCase().replace(/["'\r]/g, '').trim();
+
+      const headers = rows[0].map(normalizeHeader);
+      let skuIdx = headers.findIndex(h => h.includes('SKU') || h.includes('MÃ SẢN PHẨM') || h.includes('MA SAN PHAM'));
+      let stockIdx = headers.findIndex(h => h.includes('TỒN KHO') || h.includes('TON KHO'));
+
+      if (skuIdx === -1) skuIdx = 0;
+      if (stockIdx === -1) stockIdx = headers.length >= 16 ? 2 : 5;
+
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i];
+        if (!cols || cols.length === 0 || cols.every(c => c === '')) continue;
+        
+        const sku = String(cols[skuIdx] || '').trim();
+        if (!sku) continue; 
+        
+        const stock = parseInt(String(cols[stockIdx]).replace(/,/g, '')) || 0;
+        
+        const existingProduct = products.find(p => p.sku === sku);
+        
+        if (existingProduct) {
+          const rec = recalculateProduct({ ...existingProduct, stock });
+          batch.update(doc(db, 'products', String(existingProduct.id)), {
+            stock,
+            importQty: rec.importQty,
+            status: rec.status
+          });
+          updatedCount++;
+        }
+      }
+      
+      if (updatedCount > 0) {
+        batch.commit().then(() => {
+          alert(`Đã cập nhật số tồn kho thành công cho ${updatedCount} sản phẩm!`);
+          setShowAddModal(false);
+        }).catch(err => {
+          console.error(err);
+          alert('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!');
+        });
+      } else {
+        alert('Không tìm thấy Mã SKU nào trong file trùng khớp với hệ thống!');
+      }
+      
+      if (inventoryFileInputRef.current) {
+        inventoryFileInputRef.current.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   // Thống kê
   const stats = useMemo(() => {
     const total = products.length;
@@ -751,8 +823,8 @@ function App() {
             <div className="modal-body">
               <div className="action-card">
                 <div className="action-card-info">
-                  <h4>Nhập hàng loạt bằng Excel</h4>
-                  <p>Tải file mẫu về, điền thông tin và tải lên lại hệ thống.</p>
+                  <h4>Nhập mới / Cập nhật toàn bộ bằng Excel</h4>
+                  <p>Thêm mới sản phẩm và đè toàn bộ thông tin Tên, Ghi chú, Nguồn nhập,...</p>
                 </div>
                 <div className="action-card-buttons">
                   <button className="btn btn-outline" onClick={handleDownloadTemplate}>Tải file mẫu</button>
@@ -761,6 +833,19 @@ function App() {
                 </div>
               </div>
               
+              <div className="modal-divider">HOẶC</div>
+
+              <div className="action-card">
+                <div className="action-card-info">
+                  <h4>Chỉ cập nhật Tồn Kho</h4>
+                  <p>Chỉ đọc cột Tồn kho theo Mã SKU, giữ nguyên các thông tin khác trên hệ thống.</p>
+                </div>
+                <div className="action-card-buttons">
+                  <button className="btn btn-primary" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }} onClick={() => inventoryFileInputRef.current && inventoryFileInputRef.current.click()}>Tải số tồn kho</button>
+                  <input type="file" accept=".csv, .xlsx, .xls" style={{ display: 'none' }} ref={inventoryFileInputRef} onChange={handleInventoryUpload} />
+                </div>
+              </div>
+
               <div className="modal-divider">HOẶC</div>
 
               <div className="action-card">
