@@ -423,7 +423,7 @@ function App() {
                   </thead>
                   <tbody>
                     {products.filter(p => filterSource === 'Tất cả' || p.source === filterSource).map((p, index) => (
-                      <tr key={p.id}>
+                      <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
                         <td style={{ fontWeight: 500 }}>{p.name}</td>
@@ -512,7 +512,7 @@ function App() {
                   </thead>
                   <tbody>
                     {products.filter(p => p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập').map(p => (
-                      <tr key={p.id}>
+                      <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>
                           <input 
                             type="checkbox" 
@@ -592,7 +592,7 @@ function App() {
                   </thead>
                   <tbody>
                     {products.map((p, index) => (
-                      <tr key={p.id}>
+                      <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
                         <td style={{ fontWeight: 500 }}>{p.name}</td>
