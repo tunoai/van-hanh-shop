@@ -49,6 +49,7 @@ function App() {
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [filterSource, setFilterSource] = useState('Tất cả');
+  const [filterStatus, setFilterStatus] = useState('Trạng thái: Tất cả');
   const [searchQuery, setSearchQuery] = useState('');
   const [supplierQuery, setSupplierQuery] = useState('');
   const [newProduct, setNewProduct] = useState({
@@ -487,10 +488,11 @@ function App() {
               <div className="table-container">
                 <div className="table-header-controls">
                   <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                  <select className="filter-select">
-                    <option>Trạng thái: Tất cả</option>
-                    <option>Cần nhập</option>
-                    <option>Chưa cần nhập</option>
+                  <select className="filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="Trạng thái: Tất cả">Trạng thái: Tất cả</option>
+                    <option value="Cần nhập">Cần nhập</option>
+                    <option value="Sắp cần nhập">Sắp cần nhập</option>
+                    <option value="Chưa cần nhập">Chưa cần nhập</option>
                   </select>
                   <select 
                     className="filter-select"
@@ -519,7 +521,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.filter(p => (filterSource === 'Tất cả' || p.source === filterSource) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
+                    {products.filter(p => (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
