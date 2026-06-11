@@ -326,16 +326,14 @@ function App() {
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Vận Hành Shop Logo" style={{ maxWidth: '100%', maxHeight: '110px', objectFit: 'contain' }} />
         </div>
         <div className="sidebar-menu">
-          <div className={`menu-item ${activeMenu === 'tong-quan' ? 'active' : ''}`} onClick={() => setActiveMenu('tong-quan')}>
-            <LayoutDashboard size={20} /> Tổng quan
-          </div>
+
           <div className={`menu-item ${activeMenu === 'nhap-hang' ? 'active' : ''}`} onClick={() => setActiveMenu('nhap-hang')}>
             <ShoppingCart size={20} /> Nhập hàng
           </div>
           <div className={`menu-item ${activeMenu === 'san-pham' ? 'active' : ''}`} onClick={() => setActiveMenu('san-pham')}>
             <Package size={20} /> Sản phẩm
           </div>
-          <div className="menu-item"><FileText size={20} /> Đơn nhập hàng</div>
+
           <div className={`menu-item ${activeMenu === 'nha-cung-cap' ? 'active' : ''}`} onClick={() => setActiveMenu('nha-cung-cap')}>
             <Truck size={20} /> Nhà cung cấp
           </div>
