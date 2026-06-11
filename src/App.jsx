@@ -7,32 +7,18 @@ import {
   LayoutDashboard, Truck, Users, FileText,
   AlertTriangle, FilePlus, Save
 } from 'lucide-react';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
+import { db } from './firebase.js';
 import './index.css';
 
-// --- MOCK DATA ---
-const initialProducts = [
-  { id: 1, sku: 'KC001', name: 'Kim may công nghiệp số 11', stock: 120, sales1M: 35, monthlySales: [30, 35, 40, 50, 20, 10, 0, 0, 0, 0, 0, 0], maxSales: 50, source: 'Nhà cung cấp A', importQty: 0, status: 'Chưa cần nhập', note: '', isManual: false },
-  { id: 2, sku: 'CV005', name: 'Chân vịt viền', stock: 15, sales1M: 80, monthlySales: [60, 70, 80, 100, 90, 85, 0, 0, 0, 0, 0, 0], maxSales: 100, source: 'Xưởng may B', importQty: 50, status: 'Cần nhập', note: 'Sắp hết hàng', isManual: false },
-  { id: 3, sku: 'TH020', name: 'Thun bản 2cm màu trắng', stock: 30, sales1M: 150, monthlySales: [120, 150, 160, 200, 180, 190, 0, 0, 0, 0, 0, 0], maxSales: 200, source: 'Đại lý C', importQty: 100, status: 'Cần nhập', note: 'Nhập thêm trước cuối tuần', isManual: false },
-  { id: 4, sku: 'DCK03', name: 'Dây kéo 3 phân đen', stock: 200, sales1M: 45, monthlySales: [45, 40, 50, 60, 55, 45, 0, 0, 0, 0, 0, 0], maxSales: 60, source: 'Nhà cung cấp A', importQty: 0, status: 'Chưa cần nhập', note: '', isManual: false },
-  { id: 5, sku: 'MB002', name: 'Mũi kim DBx1 #11', stock: 60, sales1M: 25, monthlySales: [20, 25, 30, 40, 35, 25, 0, 0, 0, 0, 0, 0], maxSales: 40, source: 'Xưởng may B', importQty: 0, status: 'Sắp cần nhập', note: '', isManual: false },
-  { id: 6, sku: 'CT001', name: 'Chỉ may cotton trắng', stock: 25, sales1M: 60, monthlySales: [50, 60, 70, 90, 80, 75, 0, 0, 0, 0, 0, 0], maxSales: 90, source: 'Đại lý C', importQty: 50, status: 'Cần nhập', note: 'Sắp hết', isManual: false },
-  { id: 7, sku: 'NH001', name: 'Nhãn dệt size M', stock: 300, sales1M: 20, monthlySales: [15, 20, 25, 40, 30, 20, 0, 0, 0, 0, 0, 0], maxSales: 40, source: 'Nhà cung cấp A', importQty: 0, status: 'Chưa cần nhập', note: '', isManual: false },
-  { id: 8, sku: 'PK001', name: 'Phấn may màu xanh', stock: 18, sales1M: 40, monthlySales: [30, 40, 50, 60, 55, 45, 0, 0, 0, 0, 0, 0], maxSales: 60, source: 'Xưởng may B', importQty: 20, status: 'Sắp cần nhập', note: '', isManual: false },
-];
 
-const initialSuppliers = [
-  { id: 1, name: 'Nhà cung cấp A', contact: '123 Đường A, Quận 1, TP.HCM', phone: '0901234567', rating: 'Tốt' },
-  { id: 2, name: 'Xưởng may B', contact: '456 Đường B, Quận 2, TP.HCM', phone: '0912345678', rating: 'Khá' },
-  { id: 3, name: 'Đại lý C', contact: '789 Đường C, Quận 3, TP.HCM', phone: '0987654321', rating: 'Tốt' },
-];
 
 function App() {
   const [activeMenu, setActiveMenu] = useState('nhap-hang');
   const [activeTab, setActiveTab] = useState('san-pham');
-  const [products, setProducts] = useState(initialProducts);
+  const [products, setProducts] = useState([]);
   const [selectedForReceipt, setSelectedForReceipt] = useState([]);
-  const [suppliers, setSuppliers] = useState(initialSuppliers);
+  const [suppliers, setSuppliers] = useState([]);
   const [editingSupplierId, setEditingSupplierId] = useState(null);
   const [showMonths, setShowMonths] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -44,11 +30,30 @@ function App() {
     sku: '',
     name: '',
     stock: 0,
-    source: initialSuppliers[0].name
+    source: ''
   });
 
-  const handleSupplierChange = (id, field, value) => {
-    setSuppliers(suppliers.map(s => s.id === id ? { ...s, [field]: value } : s));
+  useEffect(() => {
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setProducts(data);
+    });
+
+    const unsubSuppliers = onSnapshot(collection(db, 'suppliers'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSuppliers(data);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubSuppliers();
+    };
+  }, []);
+
+  const handleSupplierChange = async (id, field, value) => {
+    try {
+      await updateDoc(doc(db, 'suppliers', String(id)), { [field]: value });
+    } catch(err) { console.error(err); }
   };
 
   // Hàm tính toán tự động số cần nhập và trạng thái
@@ -70,62 +75,60 @@ function App() {
     return { ...p, importQty: finalImportQty, status };
   };
 
-  const handleMonthlySalesChange = (id, monthIndex, value) => {
-    setProducts(products.map(p => {
-      if (p.id === id) {
-        const val = parseInt(value) || 0;
-        const newMonthlySales = [...p.monthlySales];
-        newMonthlySales[monthIndex] = val;
-        
-        const newMaxSales = Math.max(...newMonthlySales);
-        let updated = { ...p, monthlySales: newMonthlySales };
-        if (!p.isManual) {
-          updated.maxSales = newMaxSales;
-          return recalculateProduct(updated);
-        }
-        return updated;
-      }
-      return p;
-    }));
+  const handleMonthlySalesChange = async (id, monthIndex, value) => {
+    const p = products.find(p => p.id === id);
+    if (!p) return;
+    const val = parseInt(value) || 0;
+    const newMonthlySales = [...p.monthlySales];
+    newMonthlySales[monthIndex] = val;
+    
+    const newMaxSales = Math.max(...newMonthlySales);
+    let updatedFields = { monthlySales: newMonthlySales };
+    
+    if (!p.isManual) {
+      updatedFields.maxSales = newMaxSales;
+      const rec = recalculateProduct({ ...p, monthlySales: newMonthlySales, maxSales: newMaxSales });
+      updatedFields.importQty = rec.importQty;
+      updatedFields.status = rec.status;
+    }
+    
+    try {
+      await updateDoc(doc(db, 'products', String(id)), updatedFields);
+    } catch(err) { console.error(err); }
   };
 
-  const handleNoteChange = (id, newNote) => {
-    setProducts(products.map(p => {
-      if (p.id === id) {
-        return { ...p, note: newNote };
-      }
-      return p;
-    }));
+  const handleNoteChange = async (id, newNote) => {
+    try {
+      await updateDoc(doc(db, 'products', String(id)), { note: newNote });
+    } catch(err) { console.error(err); }
   };
 
-  const handleSourceChange = (id, newSource) => {
-    setProducts(products.map(p => {
-      if (p.id === id) {
-        return { ...p, source: newSource };
-      }
-      return p;
-    }));
+  const handleSourceChange = async (id, newSource) => {
+    try {
+      await updateDoc(doc(db, 'products', String(id)), { source: newSource });
+    } catch(err) { console.error(err); }
   };
 
-  const handleMaxSalesChange = (id, newMaxSales) => {
-    setProducts(products.map(p => {
-      if (p.id === id) {
-        const val = parseInt(newMaxSales) || 0;
-        const updated = { ...p, maxSales: val, isManual: true };
-        return recalculateProduct(updated);
-      }
-      return p;
-    }));
+  const handleMaxSalesChange = async (id, newMaxSales) => {
+    const p = products.find(p => p.id === id);
+    if (!p) return;
+    const val = parseInt(newMaxSales) || 0;
+    const updated = recalculateProduct({ ...p, maxSales: val, isManual: true });
+    try {
+      await updateDoc(doc(db, 'products', String(id)), { 
+        maxSales: val, 
+        isManual: true, 
+        importQty: updated.importQty, 
+        status: updated.status 
+      });
+    } catch(err) { console.error(err); }
   };
 
-  const handleImportQtyChange = (id, newQty) => {
-    setProducts(products.map(p => {
-      if (p.id === id) {
-        const val = parseInt(newQty) || 0;
-        return { ...p, importQty: val, isManual: true };
-      }
-      return p;
-    }));
+  const handleImportQtyChange = async (id, newQty) => {
+    const val = parseInt(newQty) || 0;
+    try {
+      await updateDoc(doc(db, 'products', String(id)), { importQty: val, isManual: true });
+    } catch(err) { console.error(err); }
   };
 
   const openEditProductModal = (product) => {
@@ -196,102 +199,101 @@ function App() {
         return; 
       }
       
-      setProducts(prevProducts => {
-        const updatedProducts = [...prevProducts];
-        let currentMaxId = Math.max(0, ...updatedProducts.map(p => p.id));
-        let addedCount = 0;
-        let updatedCount = 0;
+      const batch = writeBatch(db);
+      let addedCount = 0;
+      let updatedCount = 0;
 
-        const normalizeHeader = (h) => String(h).toUpperCase().replace(/["'\r]/g, '').trim();
+      const normalizeHeader = (h) => String(h).toUpperCase().replace(/["'\r]/g, '').trim();
 
-        const headers = rows[0].map(normalizeHeader);
-        let skuIdx = headers.findIndex(h => h.includes('SKU') || h.includes('MÃ SẢN PHẨM') || h.includes('MA SAN PHAM'));
-        let stockIdx = headers.findIndex(h => h.includes('TỒN KHO') || h.includes('TON KHO'));
-        let nameIdx = headers.findIndex(h => h.includes('TÊN SẢN PHẨM') || h.includes('TEN SAN PHAM'));
-        let sourceIdx = headers.findIndex(h => h.includes('NGUỒN NHẬP') || h.includes('NGUON NHAP'));
+      const headers = rows[0].map(normalizeHeader);
+      let skuIdx = headers.findIndex(h => h.includes('SKU') || h.includes('MÃ SẢN PHẨM') || h.includes('MA SAN PHAM'));
+      let stockIdx = headers.findIndex(h => h.includes('TỒN KHO') || h.includes('TON KHO'));
+      let nameIdx = headers.findIndex(h => h.includes('TÊN SẢN PHẨM') || h.includes('TEN SAN PHAM'));
+      let sourceIdx = headers.findIndex(h => h.includes('NGUỒN NHẬP') || h.includes('NGUON NHAP'));
 
-        if (skuIdx === -1) skuIdx = 0;
-        if (nameIdx === -1) nameIdx = 1;
-        if (stockIdx === -1) stockIdx = headers.length >= 16 ? 2 : 5;
+      if (skuIdx === -1) skuIdx = 0;
+      if (nameIdx === -1) nameIdx = 1;
+      if (stockIdx === -1) stockIdx = headers.length >= 16 ? 2 : 5;
 
-        for (let i = 1; i < rows.length; i++) {
-          const cols = rows[i];
-          if (!cols || cols.length === 0 || cols.every(c => c === '')) continue;
-          
-          const sku = String(cols[skuIdx] || '').trim();
-          if (!sku) continue; 
-          
-          const name = nameIdx !== -1 && cols[nameIdx] ? String(cols[nameIdx]) : 'Sản phẩm mới';
-          const stock = parseInt(String(cols[stockIdx]).replace(/,/g, '')) || 0;
-          const source = sourceIdx !== -1 && cols[sourceIdx] ? String(cols[sourceIdx]) : '';
-          
-          const monthlySalesList = [];
-          for (let month = 1; month <= 12; month++) {
-             const mIdx = headers.findIndex(h => h === `T${month}`);
-             if (mIdx !== -1 && cols[mIdx] !== undefined && cols[mIdx] !== '') {
-                monthlySalesList.push(parseInt(String(cols[mIdx]).replace(/,/g, '')) || 0);
-             } else {
-                monthlySalesList.push(0);
-             }
-          }
-          
-          const noteIdx = headers.findIndex(h => h.includes('GHI CHÚ') || h.includes('GHI CHU'));
-          const note = noteIdx !== -1 && cols[noteIdx] ? String(cols[noteIdx]) : '';
-
-          const existingIndex = updatedProducts.findIndex(p => p.sku === sku);
-          
-          if (existingIndex >= 0) {
-            let existingProduct = { ...updatedProducts[existingIndex] };
-            
-            existingProduct.stock = stock;
-            if (nameIdx !== -1 && cols[nameIdx]) existingProduct.name = name;
-            if (sourceIdx !== -1 && cols[sourceIdx]) existingProduct.source = source;
-            if (noteIdx !== -1 && cols[noteIdx]) existingProduct.note = note;
-            
-            const hasMonthlySales = headers.some(h => h.match(/^T\d+$/));
-            if (hasMonthlySales) {
-                existingProduct.monthlySales = monthlySalesList;
-                existingProduct.maxSales = Math.max(...monthlySalesList);
-                existingProduct.sales1M = monthlySalesList[0];
-            }
-            
-            updatedProducts[existingIndex] = recalculateProduct(existingProduct);
-            updatedCount++;
-          } else {
-            const maxSalesVal = Math.max(...monthlySalesList);
-            const sales1MVal = monthlySalesList[0]; 
-
-            currentMaxId++;
-            const newProduct = {
-              id: currentMaxId,
-              sku,
-              name,
-              stock,
-              source,
-              sales1M: sales1MVal,
-              monthlySales: monthlySalesList,
-              maxSales: maxSalesVal,
-              importQty: 0,
-              status: '',
-              note,
-              isManual: false
-            };
-            updatedProducts.push(recalculateProduct(newProduct));
-            addedCount++;
-          }
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i];
+        if (!cols || cols.length === 0 || cols.every(c => c === '')) continue;
+        
+        const sku = String(cols[skuIdx] || '').trim();
+        if (!sku) continue; 
+        
+        const name = nameIdx !== -1 && cols[nameIdx] ? String(cols[nameIdx]) : 'Sản phẩm mới';
+        const stock = parseInt(String(cols[stockIdx]).replace(/,/g, '')) || 0;
+        const source = sourceIdx !== -1 && cols[sourceIdx] ? String(cols[sourceIdx]) : '';
+        
+        const monthlySalesList = [];
+        for (let month = 1; month <= 12; month++) {
+           const mIdx = headers.findIndex(h => h === `T${month}`);
+           if (mIdx !== -1 && cols[mIdx] !== undefined && cols[mIdx] !== '') {
+              monthlySalesList.push(parseInt(String(cols[mIdx]).replace(/,/g, '')) || 0);
+           } else {
+              monthlySalesList.push(0);
+           }
         }
         
-        if (addedCount > 0 || updatedCount > 0) {
-          setTimeout(() => {
-            alert(`Đã tải lên Excel thành công!\n- Thêm mới: ${addedCount} sản phẩm\n- Cập nhật tồn kho: ${updatedCount} sản phẩm`);
-            setShowAddModal(false);
-          }, 0);
+        const noteIdx = headers.findIndex(h => h.includes('GHI CHÚ') || h.includes('GHI CHU'));
+        const note = noteIdx !== -1 && cols[noteIdx] ? String(cols[noteIdx]) : '';
+
+        const existingProduct = products.find(p => p.sku === sku);
+        
+        if (existingProduct) {
+          let updatedFields = { stock };
+          if (nameIdx !== -1 && cols[nameIdx]) updatedFields.name = name;
+          if (sourceIdx !== -1 && cols[sourceIdx]) updatedFields.source = source;
+          if (noteIdx !== -1 && cols[noteIdx]) updatedFields.note = note;
+          
+          const hasMonthlySales = headers.some(h => h.match(/^T\d+$/));
+          if (hasMonthlySales) {
+              updatedFields.monthlySales = monthlySalesList;
+              updatedFields.maxSales = Math.max(...monthlySalesList);
+              updatedFields.sales1M = monthlySalesList[0];
+          }
+          
+          const rec = recalculateProduct({ ...existingProduct, ...updatedFields });
+          updatedFields.importQty = rec.importQty;
+          updatedFields.status = rec.status;
+          
+          batch.update(doc(db, 'products', String(existingProduct.id)), updatedFields);
+          updatedCount++;
         } else {
-          setTimeout(() => alert('Không tìm thấy dữ liệu hợp lệ trong file!'), 0);
+          const maxSalesVal = Math.max(...monthlySalesList);
+          const sales1MVal = monthlySalesList[0]; 
+
+          const newProduct = {
+            sku,
+            name,
+            stock,
+            source,
+            sales1M: sales1MVal,
+            monthlySales: monthlySalesList,
+            maxSales: maxSalesVal,
+            importQty: 0,
+            status: '',
+            note,
+            isManual: false
+          };
+          const rec = recalculateProduct(newProduct);
+          batch.set(doc(collection(db, 'products')), rec);
+          addedCount++;
         }
-        
-        return updatedProducts;
-      });
+      }
+      
+      if (addedCount > 0 || updatedCount > 0) {
+        batch.commit().then(() => {
+          alert(`Đã tải lên Excel thành công!\n- Thêm mới: ${addedCount} sản phẩm\n- Cập nhật tồn kho: ${updatedCount} sản phẩm`);
+          setShowAddModal(false);
+        }).catch(err => {
+          console.error(err);
+          alert('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!');
+        });
+      } else {
+        alert('Không tìm thấy dữ liệu hợp lệ trong file!');
+      }
       
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -454,7 +456,12 @@ function App() {
                         <td>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button className="icon-btn" onClick={() => openEditProductModal(p)}><Edit2 size={16} /></button>
-                            <button className="icon-btn danger" onClick={() => setProducts(products.filter(item => item.id !== p.id))}><Trash2 size={16} /></button>
+                            <button className="icon-btn danger" onClick={async () => {
+                              if (window.confirm('Bạn có chắc muốn xóa sản phẩm này?')) {
+                                try { await deleteDoc(doc(db, 'products', String(p.id))); } 
+                                catch(err) { console.error(err); }
+                              }
+                            }}><Trash2 size={16} /></button>
                           </div>
                         </td>
                       </tr>
@@ -636,7 +643,12 @@ function App() {
                             <button className="icon-btn" onClick={() => openEditProductModal(p)}>
                               <Edit2 size={16} />
                             </button>
-                            <button className="icon-btn danger" onClick={() => setProducts(products.filter(item => item.id !== p.id))}>
+                            <button className="icon-btn danger" onClick={async () => {
+                              if (window.confirm('Bạn có chắc muốn xóa sản phẩm này?')) {
+                                try { await deleteDoc(doc(db, 'products', String(p.id))); } 
+                                catch(err) { console.error(err); }
+                              }
+                            }}>
                               <Trash2 size={16} />
                             </button>
                           </div>
@@ -696,7 +708,12 @@ function App() {
                               <Edit2 size={16} />
                             </button>
                           )}
-                          <button className="icon-btn danger" onClick={() => setSuppliers(suppliers.filter(item => item.id !== s.id))}>
+                          <button className="icon-btn danger" onClick={async () => {
+                            if (window.confirm('Bạn có chắc muốn xóa nhà cung cấp này?')) {
+                              try { await deleteDoc(doc(db, 'suppliers', String(s.id))); } 
+                              catch(err) { console.error(err); }
+                            }
+                          }}>
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -815,15 +832,13 @@ function App() {
             </div>
             <div className="modal-header" style={{ borderTop: '1px solid var(--border-color)', borderBottom: 'none', justifyContent: 'flex-end', gap: '12px', padding: '16px 24px' }}>
               <button className="btn btn-outline" onClick={() => setShowManualAddModal(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={() => {
+              <button className="btn btn-primary" onClick={async () => {
                 if (!newProduct.sku || !newProduct.name) {
                   alert('Vui lòng nhập SKU và Tên sản phẩm');
                   return;
                 }
-                const nextId = Math.max(0, ...products.map(p => p.id)) + 1;
                 const productToAdd = {
                   ...newProduct,
-                  id: nextId,
                   sales1M: 0,
                   monthlySales: Array(12).fill(0),
                   maxSales: 0,
@@ -832,9 +847,11 @@ function App() {
                   note: '',
                   isManual: false
                 };
-                setProducts([...products, productToAdd]);
-                setShowManualAddModal(false);
-                setNewProduct({ sku: '', name: '', stock: 0, source: suppliers.length > 0 ? suppliers[0].name : '' });
+                try {
+                  await addDoc(collection(db, 'products'), productToAdd);
+                  setShowManualAddModal(false);
+                  setNewProduct({ sku: '', name: '', stock: 0, source: suppliers.length > 0 ? suppliers[0].name : '' });
+                } catch(err) { console.error(err); }
               }}>Thêm mới</button>
             </div>
           </div>
@@ -903,18 +920,20 @@ function App() {
             </div>
             <div className="modal-header" style={{ borderTop: '1px solid var(--border-color)', borderBottom: 'none', justifyContent: 'flex-end', gap: '12px', padding: '16px 24px' }}>
               <button className="btn btn-outline" onClick={() => setShowEditProductModal(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={() => {
+              <button className="btn btn-primary" onClick={async () => {
                 if (!editProduct.sku || !editProduct.name) {
                   alert('Vui lòng nhập SKU và Tên sản phẩm');
                   return;
                 }
-                setProducts(products.map(p => {
-                  if (p.id === editProduct.id) {
-                    let updated = { ...p, ...editProduct };
-                    return recalculateProduct(updated);
-                  }
-                  return p;
-                }));
+                const p = products.find(prod => prod.id === editProduct.id);
+                if (p) {
+                  let updated = { ...p, ...editProduct };
+                  updated = recalculateProduct(updated);
+                  const { id, ...dataToUpdate } = updated;
+                  try {
+                    await updateDoc(doc(db, 'products', String(id)), dataToUpdate);
+                  } catch(err) { console.error(err); }
+                }
                 setShowEditProductModal(false);
               }}>Lưu thay đổi</button>
             </div>
