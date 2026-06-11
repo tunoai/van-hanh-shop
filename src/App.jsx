@@ -321,7 +321,7 @@ function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header" style={{ justifyContent: 'center', padding: '24px 16px 16px', height: 'auto', minHeight: 'var(--header-height)' }}>
-          <img src="/logo.png" alt="Vận Hành Shop Logo" style={{ maxWidth: '100%', maxHeight: '110px', objectFit: 'contain' }} />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Vận Hành Shop Logo" style={{ maxWidth: '100%', maxHeight: '110px', objectFit: 'contain' }} />
         </div>
         <div className="sidebar-menu">
           <div className={`menu-item ${activeMenu === 'tong-quan' ? 'active' : ''}`} onClick={() => setActiveMenu('tong-quan')}>
