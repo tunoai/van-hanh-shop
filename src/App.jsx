@@ -665,7 +665,19 @@ function App() {
             <div className="table-container">
               <div className="table-header-controls">
                 <input type="text" className="search-input" placeholder="Tìm kiếm nhà cung cấp..." />
-                <button className="btn btn-primary" onClick={() => alert('Thêm nhà cung cấp')}>Thêm NCC</button>
+                <button className="btn btn-primary" onClick={async () => {
+                  try {
+                    const docRef = await addDoc(collection(db, 'suppliers'), {
+                      name: 'Nhà cung cấp mới',
+                      contact: '',
+                      phone: ''
+                    });
+                    setEditingSupplierId(docRef.id);
+                  } catch (error) {
+                    console.error("Lỗi khi thêm nhà cung cấp: ", error);
+                    alert("Không thể thêm nhà cung cấp. Vui lòng thử lại!");
+                  }
+                }}>Thêm NCC</button>
               </div>
               <table className="table">
                 <thead>
