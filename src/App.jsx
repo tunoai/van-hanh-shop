@@ -172,11 +172,11 @@ function App() {
   };
 
   const selectAllReceipt = () => {
-    const importableProducts = products.filter(p => p.importQty > 0);
-    if (selectedForReceipt.length === importableProducts.length) {
+    const filteredTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
+    if (selectedForReceipt.length === filteredTab2.length && filteredTab2.length > 0) {
       setSelectedForReceipt([]);
     } else {
-      setSelectedForReceipt(importableProducts.map(p => p.id));
+      setSelectedForReceipt(filteredTab2.map(p => p.id));
     }
   };
 
@@ -416,6 +416,8 @@ function App() {
     return <span className="badge green">{status}</span>;
   };
 
+  const filteredProductsTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
+
   return (
     <div className="app-container">
       {/* Sidebar */}
@@ -584,6 +586,25 @@ function App() {
               </p>
 
               <div className="table-container">
+                <div className="table-header-controls">
+                  <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  <select className="filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="Trạng thái: Tất cả">Trạng thái: Tất cả</option>
+                    <option value="Cần nhập">Cần nhập</option>
+                    <option value="Sắp cần nhập">Sắp cần nhập</option>
+                    <option value="Chưa cần nhập">Chưa cần nhập</option>
+                  </select>
+                  <select 
+                    className="filter-select"
+                    value={filterSource}
+                    onChange={e => setFilterSource(e.target.value)}
+                  >
+                    <option value="Tất cả">Nguồn nhập: Tất cả</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <table className="table">
                   <thead>
                     <tr>
@@ -591,7 +612,7 @@ function App() {
                         <input 
                           type="checkbox" 
                           onChange={selectAllReceipt}
-                          checked={selectedForReceipt.length > 0 && selectedForReceipt.length === products.filter(p => p.importQty > 0).length}
+                          checked={selectedForReceipt.length > 0 && selectedForReceipt.length === filteredProductsTab2.length}
                         />
                       </th>
                       <th>SKU</th>
@@ -603,7 +624,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.filter(p => p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập').map(p => (
+                    {filteredProductsTab2.map(p => (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>
                           <input 
