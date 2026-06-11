@@ -26,6 +26,8 @@ function App() {
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [filterSource, setFilterSource] = useState('Tất cả');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [supplierQuery, setSupplierQuery] = useState('');
   const [newProduct, setNewProduct] = useState({
     sku: '',
     name: '',
@@ -461,7 +463,7 @@ function App() {
               {/* Table Area */}
               <div className="table-container">
                 <div className="table-header-controls">
-                  <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." />
+                  <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                   <select className="filter-select">
                     <option>Trạng thái: Tất cả</option>
                     <option>Cần nhập</option>
@@ -494,7 +496,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.filter(p => filterSource === 'Tất cả' || p.source === filterSource).map((p, index) => (
+                    {products.filter(p => (filterSource === 'Tất cả' || p.source === filterSource) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
@@ -635,7 +637,7 @@ function App() {
           {activeMenu === 'san-pham' && (
             <div className="table-container" style={{ overflowX: 'auto' }}>
               <div className="table-header-controls">
-                <input type="text" className="search-input" placeholder="Tìm kiếm sản phẩm..." />
+                <input type="text" className="search-input" placeholder="Tìm kiếm sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                 <button 
                   className={`btn ${showMonths ? 'btn-outline' : 'btn-primary'}`} 
                   style={{ minWidth: '130px', justifyContent: 'center' }}
@@ -663,7 +665,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((p, index) => (
+                    {products.filter(p => ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
@@ -734,7 +736,7 @@ function App() {
           {activeMenu === 'nha-cung-cap' && (
             <div className="table-container">
               <div className="table-header-controls">
-                <input type="text" className="search-input" placeholder="Tìm kiếm nhà cung cấp..." />
+                <input type="text" className="search-input" placeholder="Tìm kiếm nhà cung cấp..." value={supplierQuery} onChange={e => setSupplierQuery(e.target.value)} />
                 <button className="btn btn-primary" onClick={async () => {
                   try {
                     const docRef = await addDoc(collection(db, 'suppliers'), {
@@ -760,7 +762,7 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {suppliers.map((s, index) => (
+                  {suppliers.filter(s => (s.name || '').toLowerCase().includes(supplierQuery.toLowerCase())).map((s, index) => (
                     <tr key={s.id}>
                       <td>{index + 1}</td>
                       <td style={{ fontWeight: 500 }}>
