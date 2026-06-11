@@ -542,17 +542,10 @@ function App() {
                 </table>
                 <div className="table-footer">
                   <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                    Hiển thị 1 đến {products.length} trong tổng số {stats.total} sản phẩm
+                    Tổng cộng: {stats.total} sản phẩm
                   </div>
                   <div className="total-summary">
                     Tổng lượng cần nhập: <span>{stats.totalImportAmount}</span>
-                  </div>
-                  <div className="pagination">
-                    <button className="page-btn" disabled><ChevronLeft size={16} /></button>
-                    <button className="page-btn active">1</button>
-                    <button className="page-btn">2</button>
-                    <button className="page-btn">3</button>
-                    <button className="page-btn"><ChevronRight size={16} /></button>
                   </div>
                 </div>
               </div>
