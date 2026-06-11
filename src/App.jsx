@@ -11,7 +11,30 @@ import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch }
 import { db } from './firebase.js';
 import './index.css';
 
+const InlineEdit = ({ value, onSave, placeholder }) => {
+  const [val, setVal] = useState(value || '');
+  
+  useEffect(() => {
+    setVal(value || '');
+  }, [value]);
 
+  return (
+    <input 
+      type="text" 
+      className="editable-input" 
+      style={{ width: '100%', padding: '4px 8px' }}
+      placeholder={placeholder}
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={() => {
+        if (val !== (value || '')) onSave(val);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.target.blur();
+      }}
+    />
+  );
+};
 
 function App() {
   const [activeMenu, setActiveMenu] = useState('nhap-hang');
@@ -694,13 +717,10 @@ function App() {
                           </strong>
                         </td>
                         <td>
-                          <input 
-                            type="text" 
-                            className="editable-input" 
-                            style={{ width: '100%', padding: '4px 8px' }}
-                            placeholder="Thêm ghi chú..."
-                            value={p.note || ''}
-                            onChange={(e) => handleNoteChange(p.id, e.target.value)}
+                          <InlineEdit 
+                            value={p.note} 
+                            placeholder="Thêm ghi chú..." 
+                            onSave={(val) => handleNoteChange(p.id, val)} 
                           />
                         </td>
                         <td>
