@@ -350,6 +350,93 @@ a {
   background-position: right 8px center;
 }
 
+/* Multi-Select Dropdown */
+.multi-select-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.multi-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: white;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+  min-width: 160px;
+}
+
+.multi-select-trigger:hover {
+  border-color: var(--text-secondary);
+}
+
+.multi-select-trigger:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+  outline: none;
+}
+
+.multi-select-label {
+  flex: 1;
+  text-align: left;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multi-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  padding: 4px 0;
+  animation: dropdownFadeIn 0.15s ease;
+}
+
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.multi-select-option:hover {
+  background-color: #f1f5f9;
+}
+
+.multi-select-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.multi-select-option span {
+  color: var(--text-primary);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -536,6 +623,31 @@ a {
   font-size: 0.875rem;
 }
 
+/* Receipt Detail (History Tab) */
+.receipt-detail-container {
+  padding: 8px 16px 16px 48px;
+  background: linear-gradient(to bottom, #f1f5f9, #f8fafc);
+  border-top: 1px solid var(--border-color);
+}
+
+.receipt-detail-table {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: white;
+}
+
+.receipt-detail-table th {
+  padding: 10px 16px !important;
+  font-size: 0.7rem !important;
+  background-color: #eef2f7 !important;
+}
+
+.receipt-detail-table td {
+  padding: 10px 16px !important;
+  font-size: 0.8rem !important;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
@@ -634,3 +746,113 @@ a {
 
 .modal-divider::before { left: 0; }
 .modal-divider::after { right: 0; }
+
+/* Toast Notification */
+.toast-notification {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  min-width: 340px;
+  max-width: 480px;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  z-index: 9999;
+  transform: translateX(calc(100% + 40px));
+  opacity: 0;
+  transition: transform 0.4s cubic-bezier(0.21, 1.02, 0.73, 1), opacity 0.3s ease;
+  overflow: hidden;
+  border-left: 4px solid var(--success-color);
+}
+
+.toast-notification.error {
+  border-left-color: var(--danger-color);
+}
+
+.toast-notification.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.toast-notification.success .toast-icon,
+.toast-notification:not(.error) .toast-icon {
+  background-color: var(--success-bg);
+  color: var(--success-color);
+}
+
+.toast-notification.error .toast-icon {
+  background-color: var(--danger-bg);
+  color: var(--danger-color);
+}
+
+.toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.toast-message {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 1.3rem;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 0 0 0 var(--radius-lg);
+  animation: toastProgress 4s linear forwards;
+}
+
+.toast-notification:not(.error) .toast-progress {
+  background: linear-gradient(90deg, var(--success-color), #4ade80);
+}
+
+.toast-notification.error .toast-progress {
+  background: linear-gradient(90deg, var(--danger-color), #f87171);
+}
+
+@keyframes toastProgress {
+  from { width: 100%; }
+  to { width: 0%; }
+}

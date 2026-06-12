@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Package, ShoppingCart, AlertCircle, CheckCircle2, 
   Search, Filter, ChevronLeft, ChevronRight,
   Edit2, Trash2, Bell, Settings, LogOut,
   LayoutDashboard, Truck, Users, FileText,
-  AlertTriangle, FilePlus, Save
+  AlertTriangle, FilePlus, Save, Download, Clock, Eye, ChevronDown
 } from 'lucide-react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
 import { db } from './firebase.js';
@@ -38,9 +38,23 @@ const InlineEdit = ({ value, onSave, placeholder }) => {
 
 function App() {
   const [activeMenu, setActiveMenu] = useState('nhap-hang');
-  const [activeTab, setActiveTab] = useState('san-pham');
+  const [activeTab, setActiveTab] = useState('phieu-nhap');
   const [products, setProducts] = useState([]);
   const [selectedForReceipt, setSelectedForReceipt] = useState([]);
+  const [importReceipts, setImportReceipts] = useState([]);
+  const [expandedReceipt, setExpandedReceipt] = useState(null);
+  const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [receiptPreviewData, setReceiptPreviewData] = useState(null);
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const toastTimerRef = useRef(null);
+
+  const showToast = useCallback((message, type = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, message, type });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 4000);
+  }, []);
   const [suppliers, setSuppliers] = useState([]);
   const [editingSupplierId, setEditingSupplierId] = useState(null);
   const [showMonths, setShowMonths] = useState(false);
@@ -49,7 +63,37 @@ function App() {
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [filterSource, setFilterSource] = useState('Tất cả');
-  const [filterStatus, setFilterStatus] = useState('Trạng thái: Tất cả');
+  const [filterStatuses, setFilterStatuses] = useState([]);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef(null);
+
+  // Close status dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target)) {
+        setStatusDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleStatusFilter = useCallback((status) => {
+    setFilterStatuses(prev => {
+      if (prev.includes(status)) {
+        return prev.filter(s => s !== status);
+      } else {
+        return [...prev, status];
+      }
+    });
+  }, []);
+
+  const statusOptions = ['Cần nhập', 'Sắp cần nhập', 'Chưa cần nhập'];
+
+  const getStatusFilterLabel = () => {
+    if (filterStatuses.length === 0 || filterStatuses.length === 3) return 'Trạng thái: Tất cả';
+    return filterStatuses.join(', ');
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [supplierQuery, setSupplierQuery] = useState('');
   const [newProduct, setNewProduct] = useState({
@@ -70,8 +114,15 @@ function App() {
       setSuppliers(data);
     });
 
+    const unsubReceipts = onSnapshot(collection(db, 'importReceipts'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setImportReceipts(data);
+    });
+
     return () => {
       unsubProducts();
+      unsubReceipts();
       unsubSuppliers();
     };
   }, []);
@@ -172,7 +223,7 @@ function App() {
   };
 
   const selectAllReceipt = () => {
-    const filteredTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
+    const filteredTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatuses.length === 0 || filterStatuses.includes(p.status)) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
     if (selectedForReceipt.length === filteredTab2.length && filteredTab2.length > 0) {
       setSelectedForReceipt([]);
     } else {
@@ -221,7 +272,7 @@ function App() {
       const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
       if (rows.length <= 1) {
-        alert('File không có dữ liệu hợp lệ!');
+        showToast('File không có dữ liệu hợp lệ!', 'error');
         return; 
       }
       
@@ -311,14 +362,14 @@ function App() {
       
       if (addedCount > 0 || updatedCount > 0) {
         batch.commit().then(() => {
-          alert(`Đã tải lên Excel thành công!\n- Thêm mới: ${addedCount} sản phẩm\n- Cập nhật tồn kho: ${updatedCount} sản phẩm`);
+          showToast(`Đã tải lên Excel thành công! Thêm mới: ${addedCount}, Cập nhật: ${updatedCount} sản phẩm`);
           setShowAddModal(false);
         }).catch(err => {
           console.error(err);
-          alert('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!');
+          showToast('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!', 'error');
         });
       } else {
-        alert('Không tìm thấy dữ liệu hợp lệ trong file!');
+        showToast('Không tìm thấy dữ liệu hợp lệ trong file!', 'error');
       }
       
       if (fileInputRef.current) {
@@ -343,7 +394,7 @@ function App() {
       const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
       if (rows.length <= 1) {
-        alert('File không có dữ liệu hợp lệ!');
+        showToast('File không có dữ liệu hợp lệ!', 'error');
         return; 
       }
       
@@ -383,14 +434,14 @@ function App() {
       
       if (updatedCount > 0) {
         batch.commit().then(() => {
-          alert(`Đã cập nhật số tồn kho thành công cho ${updatedCount} sản phẩm!`);
+          showToast(`Đã cập nhật tồn kho thành công cho ${updatedCount} sản phẩm!`);
           setShowAddModal(false);
         }).catch(err => {
           console.error(err);
-          alert('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!');
+          showToast('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!', 'error');
         });
       } else {
-        alert('Không tìm thấy Mã SKU nào trong file trùng khớp với hệ thống!');
+        showToast('Không tìm thấy Mã SKU nào trùng khớp với hệ thống!', 'error');
       }
       
       if (inventoryFileInputRef.current) {
@@ -416,7 +467,35 @@ function App() {
     return <span className="badge green">{status}</span>;
   };
 
-  const filteredProductsTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
+  // Helper: tải file Excel từ dữ liệu phiếu nhập
+  const downloadReceiptExcel = (receiptCode, createdDate, createdTime, items, totalQty) => {
+    const wsData = [
+      [`PHIẾU NHẬP HÀNG - ${receiptCode}`],
+      [`Ngày tạo: ${createdDate} ${createdTime}`],
+      [],
+      ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'Số lượng nhập', 'Trạng thái']
+    ];
+    items.forEach((p, i) => {
+      wsData.push([i + 1, p.sku, p.name, p.source, p.stock, p.importQty, p.status]);
+    });
+    wsData.push([]);
+    wsData.push(['', '', '', '', 'TỔNG CỘNG:', totalQty, '']);
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 15 }
+    ];
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Phiếu nhập');
+    XLSX.writeFile(wb, `${receiptCode}.xlsx`);
+  };
+
+  const filteredProductsTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatuses.length === 0 || filterStatuses.includes(p.status)) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
 
   return (
     <div className="app-container">
@@ -471,113 +550,14 @@ function App() {
           {activeMenu === 'nhap-hang' && (
             <>
               <div className="tabs-container">
-            <div className={`tab ${activeTab === 'san-pham' ? 'active' : ''}`} onClick={() => setActiveTab('san-pham')}>
-              1. Nhập liệu & Tính toán
-            </div>
             <div className={`tab ${activeTab === 'phieu-nhap' ? 'active' : ''}`} onClick={() => setActiveTab('phieu-nhap')}>
-              2. Kiểm tra & Làm phiếu nhập
+              1. Kiểm tra & Làm phiếu nhập
+            </div>
+            <div className={`tab ${activeTab === 'lich-su' ? 'active' : ''}`} onClick={() => setActiveTab('lich-su')}>
+              <Clock size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+              2. Lịch sử phiếu nhập
             </div>
           </div>
-
-          {activeTab === 'san-pham' && (
-            <>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                Danh sách sản phẩm để xuất nhập hàng dựa trên tình hình bán hàng và tồn kho.
-              </p>
-
-
-              {/* Table Area */}
-              <div className="table-container">
-                <div className="table-header-controls">
-                  <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                  <select className="filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="Trạng thái: Tất cả">Trạng thái: Tất cả</option>
-                    <option value="Cần nhập">Cần nhập</option>
-                    <option value="Sắp cần nhập">Sắp cần nhập</option>
-                    <option value="Chưa cần nhập">Chưa cần nhập</option>
-                  </select>
-                  <select 
-                    className="filter-select"
-                    value={filterSource}
-                    onChange={e => setFilterSource(e.target.value)}
-                  >
-                    <option value="Tất cả">Nguồn nhập: Tất cả</option>
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.name}>{s.name}</option>
-                    ))}
-                  </select>
-                  <button className="btn btn-outline"><Filter size={16} /> Bộ lọc nâng cao</button>
-                </div>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>STT</th>
-                      <th>SKU</th>
-                      <th>Tên sản phẩm</th>
-                      <th>Tồn kho</th>
-                      <th>Nguồn nhập</th>
-                      <th>Số bán Max</th>
-                      <th>Số cần nhập</th>
-                      <th>Trạng thái</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.filter(p => (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatus === 'Trạng thái: Tất cả' || p.status === filterStatus) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
-                      <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
-                        <td>{index + 1}</td>
-                        <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
-                        <td style={{ fontWeight: 500 }}>{p.name}</td>
-                        <td>{p.stock}</td>
-                        <td><span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{p.source}</span></td>
-                        <td style={{ fontWeight: 500 }}>
-                          <div className="input-with-warning" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {p.maxSales}
-                            {p.isManual && (
-                              <AlertTriangle 
-                                className="warning-icon" 
-                                size={16} 
-                                title="Đã được chỉnh sửa thủ công, không theo file tính toán" 
-                              />
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <input 
-                            type="number" 
-                            className="editable-input" 
-                            value={p.importQty}
-                            onChange={(e) => handleImportQtyChange(p.id, e.target.value)}
-                            style={{ backgroundColor: '#f8fafc' }}
-                          />
-                        </td>
-                        <td>{getStatusBadge(p.status)}</td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="icon-btn" onClick={() => openEditProductModal(p)}><Edit2 size={16} /></button>
-                            <button className="icon-btn danger" onClick={async () => {
-                              if (window.confirm('Bạn có chắc muốn xóa sản phẩm này?')) {
-                                try { await deleteDoc(doc(db, 'products', String(p.id))); } 
-                                catch(err) { console.error(err); }
-                              }
-                            }}><Trash2 size={16} /></button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="table-footer">
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                    Tổng cộng: {stats.total} sản phẩm
-                  </div>
-                  <div className="total-summary">
-                    Tổng lượng cần nhập: <span>{stats.totalImportAmount}</span>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
 
           {activeTab === 'phieu-nhap' && (
             <>
@@ -585,15 +565,68 @@ function App() {
                 Nhân viên kiểm tra danh sách các mặt hàng có số lượng cần nhập &gt; 0, chọn mặt hàng và tạo Phiếu Nhập để gửi nhà cung cấp.
               </p>
 
+              {selectedForReceipt.length > 0 && (
+                <div className="checkout-panel" style={{ marginBottom: '24px' }}>
+                  <div className="checkout-info">
+                    <h3>Đã chọn {selectedForReceipt.length} mặt hàng để nhập</h3>
+                    <p>Tổng số lượng: {selectedForReceipt.reduce((acc, id) => { const found = products.find(p => p.id === id); return acc + (found ? found.importQty : 0); }, 0)}</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <button className="btn btn-outline" onClick={() => setSelectedForReceipt([])}>Hủy bỏ</button>
+                    <button className="btn btn-primary" onClick={() => {
+                      const selectedProducts = selectedForReceipt.map(id => {
+                        const p = products.find(prod => prod.id === id);
+                        return p ? { sku: p.sku, name: p.name, source: p.source || '', stock: p.stock, importQty: p.importQty, status: p.status } : null;
+                      }).filter(Boolean);
+                      if (selectedProducts.length === 0) { showToast('Không có sản phẩm nào được chọn!', 'error'); return; }
+                      const now = new Date();
+                      const receiptCode = `PN-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+                      const totalQty = selectedProducts.reduce((sum, p) => sum + p.importQty, 0);
+                      setReceiptPreviewData({
+                        code: receiptCode,
+                        createdAt: now.getTime(),
+                        createdDate: now.toLocaleDateString('vi-VN'),
+                        createdTime: now.toLocaleTimeString('vi-VN'),
+                        totalProducts: selectedProducts.length,
+                        totalQty,
+                        items: selectedProducts,
+                        note: ''
+                      });
+                      setShowReceiptPreview(true);
+                    }}>
+                      <FileText size={18} /> Tạo Phiếu Nhập
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="table-container">
                 <div className="table-header-controls">
                   <input type="text" className="search-input" placeholder="Tìm kiếm SKU hoặc tên sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                  <select className="filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="Trạng thái: Tất cả">Trạng thái: Tất cả</option>
-                    <option value="Cần nhập">Cần nhập</option>
-                    <option value="Sắp cần nhập">Sắp cần nhập</option>
-                    <option value="Chưa cần nhập">Chưa cần nhập</option>
-                  </select>
+                  <div className="multi-select-dropdown" ref={statusDropdownRef}>
+                    <button 
+                      className="multi-select-trigger" 
+                      onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                      type="button"
+                    >
+                      <span className="multi-select-label">{getStatusFilterLabel()}</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    {statusDropdownOpen && (
+                      <div className="multi-select-menu">
+                        <label className="multi-select-option" onClick={() => setFilterStatuses([])}>
+                          <input type="checkbox" checked={filterStatuses.length === 0} readOnly />
+                          <span>Tất cả</span>
+                        </label>
+                        {statusOptions.map(status => (
+                          <label key={status} className="multi-select-option" onClick={(e) => { e.preventDefault(); toggleStatusFilter(status); }}>
+                            <input type="checkbox" checked={filterStatuses.includes(status)} readOnly />
+                            <span>{status}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <select 
                     className="filter-select"
                     value={filterSource}
@@ -619,6 +652,7 @@ function App() {
                       <th>Tên sản phẩm</th>
                       <th>Nguồn nhập</th>
                       <th>Tồn hiện tại</th>
+                      <th style={{ color: '#e67e22', fontWeight: 600 }}>Số bán MAX</th>
                       <th style={{ color: 'var(--primary-color)' }}>Số chốt nhập</th>
                       <th>Trạng thái</th>
                     </tr>
@@ -638,6 +672,9 @@ function App() {
                         <td>{p.source}</td>
                         <td>{p.stock}</td>
                         <td>
+                          <strong style={{ color: '#e67e22', fontSize: '1.125rem' }}>{p.maxSales || 0}</strong>
+                        </td>
+                        <td>
                           <strong style={{ fontSize: '1.125rem' }}>{p.importQty}</strong>
                         </td>
                         <td>{getStatusBadge(p.status)}</td>
@@ -645,7 +682,7 @@ function App() {
                     ))}
                     {products.filter(p => p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập').length === 0 && (
                       <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                        <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
                           Không có sản phẩm nào cần nhập lúc này.
                         </td>
                       </tr>
@@ -653,21 +690,130 @@ function App() {
                   </tbody>
                 </table>
               </div>
+            </>
+          )}
 
-              {selectedForReceipt.length > 0 && (
-                <div className="checkout-panel">
-                  <div className="checkout-info">
-                    <h3>Đã chọn {selectedForReceipt.length} mặt hàng để nhập</h3>
-                    <p>Tổng số lượng: {selectedForReceipt.reduce((acc, id) => acc + products.find(p => p.id === id).importQty, 0)}</p>
-                  </div>
-                  <div style={{ display: 'flex', gap: '16px' }}>
-                    <button className="btn btn-outline">Hủy bỏ</button>
-                    <button className="btn btn-primary" onClick={() => alert('Đã tạo phiếu nhập thành công!')}>
-                      <FileText size={18} /> Tạo Phiếu Nhập
-                    </button>
-                  </div>
-                </div>
-              )}
+          {activeTab === 'lich-su' && (
+            <>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                Danh sách các phiếu nhập đã được tạo. Bấm vào phiếu để xem chi tiết hoặc tải lại file Excel.
+              </p>
+
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '50px' }}></th>
+                      <th>Mã phiếu</th>
+                      <th>Ngày tạo</th>
+                      <th>Giờ tạo</th>
+                      <th>Số mặt hàng</th>
+                      <th>Tổng SL nhập</th>
+                      <th>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importReceipts.length === 0 && (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '48px' }}>
+                          Chưa có phiếu nhập nào.
+                        </td>
+                      </tr>
+                    )}
+                    {importReceipts.map((receipt) => (
+                      <React.Fragment key={receipt.id}>
+                        <tr 
+                          style={{ cursor: 'pointer' }} 
+                          onClick={() => setExpandedReceipt(expandedReceipt === receipt.id ? null : receipt.id)}
+                        >
+                          <td>
+                            <ChevronDown 
+                              size={16} 
+                              style={{ 
+                                transition: 'transform 0.2s', 
+                                transform: expandedReceipt === receipt.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                                color: 'var(--text-secondary)'
+                              }} 
+                            />
+                          </td>
+                          <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{receipt.code}</td>
+                          <td>{receipt.createdDate}</td>
+                          <td>{receipt.createdTime}</td>
+                          <td>{receipt.totalProducts} sản phẩm</td>
+                          <td><strong style={{ color: 'var(--primary-color)' }}>{receipt.totalQty}</strong></td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button 
+                                className="btn btn-outline" 
+                                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadReceiptExcel(
+                                    receipt.code,
+                                    receipt.createdDate,
+                                    receipt.createdTime,
+                                    receipt.items || [],
+                                    receipt.totalQty
+                                  );
+                                }}
+                              >
+                                <Download size={14} /> Tải Excel
+                              </button>
+                              <button 
+                                className="icon-btn danger" 
+                                title="Xóa phiếu nhập"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`Bạn có chắc muốn xóa phiếu ${receipt.code}?`)) {
+                                    try { await deleteDoc(doc(db, 'importReceipts', String(receipt.id))); }
+                                    catch (err) { console.error(err); }
+                                  }
+                                }}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedReceipt === receipt.id && (
+                          <tr>
+                            <td colSpan="7" style={{ padding: 0, backgroundColor: '#f8fafc' }}>
+                              <div className="receipt-detail-container">
+                                <table className="table receipt-detail-table">
+                                  <thead>
+                                    <tr>
+                                      <th>STT</th>
+                                      <th>SKU</th>
+                                      <th>Tên sản phẩm</th>
+                                      <th>Nguồn nhập</th>
+                                      <th>Tồn lúc tạo</th>
+                                      <th>Số lượng nhập</th>
+                                      <th>Trạng thái</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(receipt.items || []).map((item, idx) => (
+                                      <tr key={idx}>
+                                        <td>{idx + 1}</td>
+                                        <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{item.sku}</td>
+                                        <td style={{ fontWeight: 500 }}>{item.name}</td>
+                                        <td>{item.source}</td>
+                                        <td>{item.stock}</td>
+                                        <td><strong>{item.importQty}</strong></td>
+                                        <td>{item.status === 'Cần nhập' ? <span className="badge red">{item.status}</span> : item.status === 'Sắp cần nhập' ? <span className="badge yellow">{item.status}</span> : <span className="badge green">{item.status}</span>}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
             </>
@@ -783,7 +929,7 @@ function App() {
                     setEditingSupplierId(docRef.id);
                   } catch (error) {
                     console.error("Lỗi khi thêm nhà cung cấp: ", error);
-                    alert("Không thể thêm nhà cung cấp. Vui lòng thử lại!");
+                    showToast('Không thể thêm nhà cung cấp. Vui lòng thử lại!', 'error');
                   }
                 }}>Thêm NCC</button>
               </div>
@@ -967,7 +1113,7 @@ function App() {
               <button className="btn btn-outline" onClick={() => setShowManualAddModal(false)}>Hủy</button>
               <button className="btn btn-primary" onClick={async () => {
                 if (!newProduct.sku || !newProduct.name) {
-                  alert('Vui lòng nhập SKU và Tên sản phẩm');
+                  showToast('Vui lòng nhập SKU và Tên sản phẩm', 'error');
                   return;
                 }
                 const productToAdd = {
@@ -1055,7 +1201,7 @@ function App() {
               <button className="btn btn-outline" onClick={() => setShowEditProductModal(false)}>Hủy</button>
               <button className="btn btn-primary" onClick={async () => {
                 if (!editProduct.sku || !editProduct.name) {
-                  alert('Vui lòng nhập SKU và Tên sản phẩm');
+                  showToast('Vui lòng nhập SKU và Tên sản phẩm', 'error');
                   return;
                 }
                 const p = products.find(prod => prod.id === editProduct.id);
@@ -1073,6 +1219,117 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Modal Xem trước Phiếu Nhập */}
+      {showReceiptPreview && receiptPreviewData && (
+        <div className="modal-overlay" onClick={() => setShowReceiptPreview(false)}>
+          <div className="modal-content" style={{ width: '900px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>Xem trước Phiếu Nhập</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  {receiptPreviewData.code} — {receiptPreviewData.createdDate} {receiptPreviewData.createdTime}
+                </p>
+              </div>
+              <button className="icon-btn" onClick={() => setShowReceiptPreview(false)}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>&times;</span>
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>STT</th>
+                    <th>SKU</th>
+                    <th>Tên sản phẩm</th>
+                    <th>Nguồn nhập</th>
+                    <th>Tồn hiện tại</th>
+                    <th style={{ color: 'var(--primary-color)' }}>Số lượng nhập</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiptPreviewData.items.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{idx + 1}</td>
+                      <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{item.sku}</td>
+                      <td style={{ fontWeight: 500 }}>{item.name}</td>
+                      <td>{item.source}</td>
+                      <td>{item.stock}</td>
+                      <td>
+                        <input 
+                          type="number" 
+                          className="editable-input" 
+                          style={{ width: '80px', backgroundColor: '#f0f7ff', borderColor: 'var(--primary-color)', fontWeight: 600, fontSize: '1rem', textAlign: 'center' }}
+                          value={item.importQty}
+                          onChange={(e) => {
+                            const newQty = parseInt(e.target.value) || 0;
+                            setReceiptPreviewData(prev => {
+                              const newItems = [...prev.items];
+                              newItems[idx] = { ...newItems[idx], importQty: newQty };
+                              const newTotal = newItems.reduce((sum, p) => sum + p.importQty, 0);
+                              return { ...prev, items: newItems, totalQty: newTotal };
+                            });
+                          }}
+                          min="0"
+                        />
+                      </td>
+                      <td>{getStatusBadge(item.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ padding: '12px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{receiptPreviewData.totalProducts} sản phẩm</span>
+                <span style={{ fontWeight: 600 }}>Tổng số lượng nhập: <span style={{ color: 'var(--primary-color)', fontSize: '1.125rem' }}>{receiptPreviewData.items.reduce((sum, p) => sum + p.importQty, 0)}</span></span>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', backgroundColor: '#fafbfc' }}>
+              <button className="btn btn-outline" onClick={() => setShowReceiptPreview(false)}>Đóng</button>
+              <button className="btn btn-outline" onClick={() => {
+                downloadReceiptExcel(
+                  receiptPreviewData.code,
+                  receiptPreviewData.createdDate,
+                  receiptPreviewData.createdTime,
+                  receiptPreviewData.items,
+                  receiptPreviewData.totalQty
+                );
+              }}>
+                <Download size={16} /> Tải Excel
+              </button>
+              <button className="btn btn-primary" onClick={async () => {
+                const code = receiptPreviewData.code;
+                try {
+                  await addDoc(collection(db, 'importReceipts'), receiptPreviewData);
+                  setShowReceiptPreview(false);
+                  setSelectedForReceipt([]);
+                  setReceiptPreviewData(null);
+                  showToast(`Đã lưu phiếu nhập ${code} thành công!`);
+                } catch (err) {
+                  console.error('Lỗi lưu phiếu nhập:', err);
+                  showToast('Lỗi khi lưu phiếu nhập vào hệ thống!', 'error');
+                }
+              }}>
+                <Save size={16} /> Xác nhận & Lưu phiếu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Toast Notification */}
+      <div className={`toast-notification ${toast.show ? 'show' : ''} ${toast.type}`}>
+        <div className="toast-icon">
+          {toast.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+        </div>
+        <div className="toast-content">
+          <div className="toast-title">{toast.type === 'success' ? 'Thành công' : 'Lỗi'}</div>
+          <div className="toast-message">{toast.message}</div>
+        </div>
+        <button className="toast-close" onClick={() => setToast(prev => ({ ...prev, show: false }))}>
+          <span>&times;</span>
+        </button>
+        {toast.show && <div className="toast-progress" />}
+      </div>
     </div>
   );
 }
