@@ -63,6 +63,7 @@ function App() {
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [filterSource, setFilterSource] = useState('Tất cả');
+  const [productFilterSource, setProductFilterSource] = useState('Tất cả');
   const [filterStatuses, setFilterStatuses] = useState([]);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
@@ -830,6 +831,16 @@ function App() {
             <div className="table-container" style={{ overflowX: 'auto' }}>
               <div className="table-header-controls">
                 <input type="text" className="search-input" placeholder="Tìm kiếm sản phẩm..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                <select 
+                  className="filter-select"
+                  value={productFilterSource}
+                  onChange={e => setProductFilterSource(e.target.value)}
+                >
+                  <option value="Tất cả">Nhà cung cấp: Tất cả</option>
+                  {suppliers.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
                 <button 
                   className={`btn ${showMonths ? 'btn-outline' : 'btn-primary'}`} 
                   style={{ minWidth: '130px', justifyContent: 'center' }}
@@ -837,7 +848,6 @@ function App() {
                 >
                   {showMonths ? 'Ẩn cột tháng' : 'Hiện cột tháng'}
                 </button>
-                <button className="btn btn-outline"><Filter size={16} /> Bộ lọc</button>
               </div>
               <div style={{ minWidth: '1000px' }}>
                 <table className="table">
@@ -857,7 +867,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.filter(p => ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
+                    {products.filter(p => (productFilterSource === 'Tất cả' || p.source === productFilterSource) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()))).map((p, index) => (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>{index + 1}</td>
                         <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{p.sku}</td>
