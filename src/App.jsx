@@ -400,6 +400,7 @@ function App() {
       
       const batch = writeBatch(db);
       let updatedCount = 0;
+      let skippedCount = 0;
 
       const normalizeHeader = (h) => String(h).toUpperCase().replace(/["'\r]/g, '').trim();
 
@@ -429,19 +430,25 @@ function App() {
             status: rec.status
           });
           updatedCount++;
+        } else {
+          skippedCount++;
         }
       }
       
       if (updatedCount > 0) {
         batch.commit().then(() => {
-          showToast(`Đã cập nhật tồn kho thành công cho ${updatedCount} sản phẩm!`);
+          let msg = `Đã cập nhật tồn kho cho ${updatedCount} sản phẩm!`;
+          if (skippedCount > 0) {
+            msg += ` (Bỏ qua ${skippedCount} SKU không có trong hệ thống)`;
+          }
+          showToast(msg);
           setShowAddModal(false);
         }).catch(err => {
           console.error(err);
           showToast('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!', 'error');
         });
       } else {
-        showToast('Không tìm thấy Mã SKU nào trùng khớp với hệ thống!', 'error');
+        showToast(`Không tìm thấy Mã SKU nào trùng khớp! (${skippedCount} SKU trong file không có trong hệ thống)`, 'error');
       }
       
       if (inventoryFileInputRef.current) {
