@@ -900,7 +900,7 @@ function App() {
                         ))}
                         <td style={{ textAlign: 'center' }}>
                           <strong style={{ color: 'var(--primary-color)', fontSize: '1.125rem' }}>
-                            {Math.max(...p.monthlySales)}
+                            {p.maxSales || 0}
                           </strong>
                         </td>
                         <td>
