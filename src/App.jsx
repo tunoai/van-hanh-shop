@@ -101,7 +101,8 @@ function App() {
     sku: '',
     name: '',
     stock: 0,
-    source: ''
+    source: '',
+    maxSales: 0
   });
 
   useEffect(() => {
@@ -1111,6 +1112,16 @@ function App() {
                   />
                 </div>
                 <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '0.875rem' }}>Số lượng bán MAX</label>
+                  <input 
+                    type="number" 
+                    className="search-input" 
+                    style={{ width: '100%', background: 'white' }} 
+                    value={newProduct.maxSales} 
+                    onChange={e => setNewProduct({...newProduct, maxSales: parseInt(e.target.value) || 0})} 
+                  />
+                </div>
+                <div>
                   <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '0.875rem' }}>Nguồn nhập</label>
                   <select 
                     className="search-input" 
@@ -1133,20 +1144,24 @@ function App() {
                   showToast('Vui lòng nhập SKU và Tên sản phẩm', 'error');
                   return;
                 }
-                const productToAdd = {
+                let productToAdd = {
                   ...newProduct,
                   sales1M: 0,
                   monthlySales: Array(12).fill(0),
-                  maxSales: 0,
+                  maxSales: newProduct.maxSales || 0,
                   importQty: 0,
                   status: 'Chưa cần nhập',
                   note: '',
                   isManual: false
                 };
+                productToAdd = recalculateProduct(productToAdd);
+                if (newProduct.maxSales > 0) {
+                  productToAdd.isManual = true;
+                }
                 try {
                   await addDoc(collection(db, 'products'), productToAdd);
                   setShowManualAddModal(false);
-                  setNewProduct({ sku: '', name: '', stock: 0, source: suppliers.length > 0 ? suppliers[0].name : '' });
+                  setNewProduct({ sku: '', name: '', stock: 0, source: suppliers.length > 0 ? suppliers[0].name : '', maxSales: 0 });
                 } catch(err) { console.error(err); }
               }}>Thêm mới</button>
             </div>
@@ -1199,6 +1214,16 @@ function App() {
                   />
                 </div>
                 <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '0.875rem' }}>Số lượng bán MAX</label>
+                  <input 
+                    type="number" 
+                    className="search-input" 
+                    style={{ width: '100%', background: 'white' }} 
+                    value={editProduct.maxSales} 
+                    onChange={e => setEditProduct({...editProduct, maxSales: parseInt(e.target.value) || 0})} 
+                  />
+                </div>
+                <div>
                   <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '0.875rem' }}>Nguồn nhập</label>
                   <select 
                     className="search-input" 
@@ -1224,6 +1249,9 @@ function App() {
                 const p = products.find(prod => prod.id === editProduct.id);
                 if (p) {
                   let updated = { ...p, ...editProduct };
+                  if (editProduct.maxSales !== p.maxSales) {
+                    updated.isManual = true;
+                  }
                   updated = recalculateProduct(updated);
                   const { id, ...dataToUpdate } = updated;
                   try {
