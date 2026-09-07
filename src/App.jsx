@@ -5,9 +5,10 @@ import {
   Search, Filter, ChevronLeft, ChevronRight,
   Edit2, Trash2, Bell, Settings, LogOut,
   LayoutDashboard, Truck, Users, FileText,
-  AlertTriangle, FilePlus, Save, Download, Clock, Eye, ChevronDown
+  AlertTriangle, FilePlus, Save, Download, Clock, Eye, ChevronDown,
+  Warehouse, UserPlus, Wallet, CalendarDays, Coins
 } from 'lucide-react';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch, setDoc } from 'firebase/firestore';
 import { db } from './firebase.js';
 import './index.css';
 
@@ -34,6 +35,96 @@ const InlineEdit = ({ value, onSave, placeholder }) => {
       }}
     />
   );
+};
+
+// Ô nhập số trong bảng, chỉ ghi dữ liệu khi rời ô (blur) hoặc nhấn Enter
+const NumberCell = ({ value, onSave, disabled, width = '80px' }) => {
+  const [val, setVal] = useState(value ?? 0);
+
+  useEffect(() => {
+    setVal(value ?? 0);
+  }, [value]);
+
+  if (disabled) return <span style={{ color: 'var(--text-secondary)' }}>—</span>;
+
+  return (
+    <input
+      type="number"
+      min="0"
+      className="editable-input"
+      style={{ width, textAlign: 'center' }}
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={() => {
+        const num = Number(val) || 0;
+        setVal(num);
+        if (num !== (Number(value) || 0)) onSave(num);
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.target.blur();
+      }}
+    />
+  );
+};
+
+// ===== Cấu hình lương =====
+const SALARY_TYPES = [
+  { value: 'month', label: 'Theo tháng' },
+  { value: 'day', label: 'Theo ngày công' },
+  { value: 'hour', label: 'Theo giờ' }
+];
+
+const getSalaryTypeLabel = (type) =>
+  (SALARY_TYPES.find(t => t.value === type) || SALARY_TYPES[0]).label;
+
+const getRateUnit = (type) =>
+  type === 'hour' ? '/giờ' : type === 'day' ? '/ngày' : '/tháng';
+
+const formatVND = (n) => (Number(n) || 0).toLocaleString('vi-VN');
+
+// Kỳ lương dạng YYYY-MM
+const getCurrentPeriod = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const formatPeriod = (period) => {
+  const [y, m] = String(period || '').split('-');
+  return y && m ? `${m}/${y}` : period;
+};
+
+// Tính lương 1 nhân viên trong 1 kỳ:
+//   - Theo tháng : mức lương × ngày công / ngày công chuẩn
+//   - Theo ngày  : mức lương × ngày công
+//   - Theo giờ   : mức lương × số giờ làm
+// Tổng lương = lương chính + phụ cấp
+const calcPayroll = (emp, entry) => {
+  const rate = Number(emp.salaryRate) || 0;
+  const standardDays = Number(emp.standardDays) || 26;
+  const workDays = Number(entry?.workDays ?? 0);
+  const workHours = Number(entry?.workHours ?? 0);
+  const allowance = Number(entry?.allowance ?? emp.allowance ?? 0);
+
+  let baseSalary;
+  if (emp.salaryType === 'day') baseSalary = rate * workDays;
+  else if (emp.salaryType === 'hour') baseSalary = rate * workHours;
+  else baseSalary = standardDays > 0 ? (rate * workDays) / standardDays : 0;
+
+  baseSalary = Math.round(baseSalary);
+  return { workDays, workHours, allowance, baseSalary, totalSalary: baseSalary + allowance };
+};
+
+const EMPTY_EMPLOYEE = {
+  code: '',
+  name: '',
+  phone: '',
+  position: 'Nhân viên kho',
+  salaryType: 'month',
+  salaryRate: 0,
+  standardDays: 26,
+  allowance: 0,
+  status: 'Đang làm',
+  note: ''
 };
 
 function App() {
@@ -105,6 +196,16 @@ function App() {
     maxSales: 0
   });
 
+  // ===== State Nhân viên & Bảng lương =====
+  const [employees, setEmployees] = useState([]);
+  const [payrolls, setPayrolls] = useState([]);
+  const [activeEmployeeTab, setActiveEmployeeTab] = useState('danh-sach');
+  const [employeeQuery, setEmployeeQuery] = useState('');
+  const [employeeFilterStatus, setEmployeeFilterStatus] = useState('Đang làm');
+  const [payrollPeriod, setPayrollPeriod] = useState(getCurrentPeriod());
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [editEmployee, setEditEmployee] = useState(null);
+
   useEffect(() => {
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -122,10 +223,22 @@ function App() {
       setImportReceipts(data);
     });
 
+    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEmployees(data);
+    });
+
+    const unsubPayrolls = onSnapshot(collection(db, 'payrolls'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPayrolls(data);
+    });
+
     return () => {
       unsubProducts();
       unsubReceipts();
       unsubSuppliers();
+      unsubEmployees();
+      unsubPayrolls();
     };
   }, []);
 
@@ -133,6 +246,161 @@ function App() {
     try {
       await updateDoc(doc(db, 'suppliers', String(id)), { [field]: value });
     } catch(err) { console.error(err); }
+  };
+
+  // ===== Handlers Nhân viên =====
+  const openAddEmployeeModal = () => {
+    setEditEmployee({ ...EMPTY_EMPLOYEE });
+    setShowEmployeeModal(true);
+  };
+
+  const openEditEmployeeModal = (emp) => {
+    setEditEmployee({ ...EMPTY_EMPLOYEE, ...emp });
+    setShowEmployeeModal(true);
+  };
+
+  const handleSaveEmployee = async () => {
+    if (!editEmployee || !(editEmployee.name || '').trim()) {
+      showToast('Vui lòng nhập họ tên nhân viên', 'error');
+      return;
+    }
+    const { id, ...data } = editEmployee;
+    const payload = {
+      code: (data.code || '').trim(),
+      name: (data.name || '').trim(),
+      phone: (data.phone || '').trim(),
+      position: (data.position || '').trim(),
+      salaryType: data.salaryType || 'month',
+      salaryRate: Number(data.salaryRate) || 0,
+      standardDays: Number(data.standardDays) || 26,
+      allowance: Number(data.allowance) || 0,
+      status: data.status || 'Đang làm',
+      note: data.note || ''
+    };
+    try {
+      if (id) {
+        await updateDoc(doc(db, 'employees', String(id)), payload);
+        showToast(`Đã cập nhật nhân viên ${payload.name}`);
+      } else {
+        await addDoc(collection(db, 'employees'), payload);
+        showToast(`Đã thêm nhân viên ${payload.name}`);
+      }
+      setShowEmployeeModal(false);
+      setEditEmployee(null);
+    } catch (err) {
+      console.error('Lỗi lưu nhân viên:', err);
+      showToast('Không thể lưu nhân viên. Vui lòng thử lại!', 'error');
+    }
+  };
+
+  const handleDeleteEmployee = async (emp) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa nhân viên "${emp.name}"?`)) return;
+    try {
+      await deleteDoc(doc(db, 'employees', String(emp.id)));
+      showToast(`Đã xóa nhân viên ${emp.name}`);
+    } catch (err) {
+      console.error('Lỗi xóa nhân viên:', err);
+      showToast('Không thể xóa nhân viên. Vui lòng thử lại!', 'error');
+    }
+  };
+
+  // Lưu 1 ô chấm công / phụ cấp của bảng lương kỳ hiện tại
+  const handlePayrollChange = async (emp, field, value) => {
+    const entry = payrolls.find(pr => pr.period === payrollPeriod && pr.employeeId === emp.id) || {};
+    const merged = { ...entry, [field]: Number(value) || 0 };
+    const result = calcPayroll(emp, merged);
+    try {
+      await setDoc(doc(db, 'payrolls', `${payrollPeriod}_${emp.id}`), {
+        period: payrollPeriod,
+        employeeId: emp.id,
+        employeeCode: emp.code || '',
+        employeeName: emp.name || '',
+        position: emp.position || '',
+        salaryType: emp.salaryType || 'month',
+        salaryRate: Number(emp.salaryRate) || 0,
+        standardDays: Number(emp.standardDays) || 26,
+        workDays: result.workDays,
+        workHours: result.workHours,
+        allowance: result.allowance,
+        baseSalary: result.baseSalary,
+        totalSalary: result.totalSalary,
+        updatedAt: new Date().getTime()
+      }, { merge: true });
+    } catch (err) {
+      console.error('Lỗi lưu bảng lương:', err);
+      showToast('Không thể lưu bảng lương. Vui lòng thử lại!', 'error');
+    }
+  };
+
+  const filteredEmployees = useMemo(() => {
+    const q = employeeQuery.trim().toLowerCase();
+    return employees
+      .filter(e => employeeFilterStatus === 'Tất cả' || (e.status || 'Đang làm') === employeeFilterStatus)
+      .filter(e => !q
+        || (e.name || '').toLowerCase().includes(q)
+        || (e.code || '').toLowerCase().includes(q)
+        || (e.phone || '').toLowerCase().includes(q))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'));
+  }, [employees, employeeQuery, employeeFilterStatus]);
+
+  // Bảng lương kỳ đang chọn: chỉ tính cho nhân viên đang làm
+  const payrollRows = useMemo(() => {
+    const q = employeeQuery.trim().toLowerCase();
+    return employees
+      .filter(e => (e.status || 'Đang làm') === 'Đang làm')
+      .filter(e => !q
+        || (e.name || '').toLowerCase().includes(q)
+        || (e.code || '').toLowerCase().includes(q))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'))
+      .map(emp => {
+        const entry = payrolls.find(pr => pr.period === payrollPeriod && pr.employeeId === emp.id);
+        return { emp, ...calcPayroll(emp, entry) };
+      });
+  }, [employees, payrolls, payrollPeriod, employeeQuery]);
+
+  const payrollTotals = useMemo(() => payrollRows.reduce((acc, r) => ({
+    base: acc.base + r.baseSalary,
+    allowance: acc.allowance + r.allowance,
+    total: acc.total + r.totalSalary
+  }), { base: 0, allowance: 0, total: 0 }), [payrollRows]);
+
+  const exportPayrollExcel = () => {
+    if (payrollRows.length === 0) {
+      showToast('Chưa có dữ liệu lương để xuất!', 'error');
+      return;
+    }
+    const wsData = [
+      [`BẢNG LƯƠNG THÁNG ${formatPeriod(payrollPeriod)}`],
+      [`Xuất ngày: ${new Date().toLocaleDateString('vi-VN')}`],
+      [],
+      ['STT', 'Mã NV', 'Họ tên', 'Chức vụ', 'Kiểu lương', 'Mức lương', 'Ngày công', 'Giờ làm', 'Lương chính', 'Phụ cấp', 'Tổng lương']
+    ];
+    payrollRows.forEach((r, idx) => {
+      wsData.push([
+        idx + 1,
+        r.emp.code || '',
+        r.emp.name || '',
+        r.emp.position || '',
+        getSalaryTypeLabel(r.emp.salaryType),
+        Number(r.emp.salaryRate) || 0,
+        r.emp.salaryType === 'hour' ? '' : r.workDays,
+        r.emp.salaryType === 'hour' ? r.workHours : '',
+        r.baseSalary,
+        r.allowance,
+        r.totalSalary
+      ]);
+    });
+    wsData.push([]);
+    wsData.push(['', '', '', '', '', '', '', 'TỔNG CỘNG', payrollTotals.base, payrollTotals.allowance, payrollTotals.total]);
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 5 }, { wch: 12 }, { wch: 24 }, { wch: 18 }, { wch: 14 }, { wch: 13 },
+      { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 14 }
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bảng lương');
+    XLSX.writeFile(wb, `Bang_luong_${payrollPeriod}.xlsx`);
   };
 
   // Hàm tính toán tự động số cần nhập và trạng thái
@@ -504,6 +772,9 @@ function App() {
     XLSX.writeFile(wb, `${receiptCode}.xlsx`);
   };
 
+  const modalLabelStyle = { display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '0.875rem' };
+  const modalInputStyle = { width: '100%', background: 'white', paddingLeft: '12px' };
+
   const filteredProductsTab2 = products.filter(p => (p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập') && (filterSource === 'Tất cả' || p.source === filterSource) && (filterStatuses.length === 0 || filterStatuses.includes(p.status)) && ((p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())));
 
   return (
@@ -525,7 +796,10 @@ function App() {
           <div className={`menu-item ${activeMenu === 'nha-cung-cap' ? 'active' : ''}`} onClick={() => setActiveMenu('nha-cung-cap')}>
             <Truck size={20} /> Nhà cung cấp
           </div>
-          <div className="menu-item"><Users size={20} /> Kho hàng</div>
+          <div className="menu-item"><Warehouse size={20} /> Kho hàng</div>
+          <div className={`menu-item ${activeMenu === 'nhan-vien' ? 'active' : ''}`} onClick={() => setActiveMenu('nhan-vien')}>
+            <Users size={20} /> Nhân viên
+          </div>
         </div>
         <div className="sidebar-footer user-profile">
           <div className="user-avatar">
@@ -544,14 +818,21 @@ function App() {
           <div className="header-title">
             {activeMenu === 'nhap-hang' ? 'Nhập hàng' : 
              activeMenu === 'san-pham' ? 'Danh sách sản phẩm' : 
-             activeMenu === 'nha-cung-cap' ? 'Nhà cung cấp' : 'Tổng quan'}
+             activeMenu === 'nha-cung-cap' ? 'Nhà cung cấp' :
+             activeMenu === 'nhan-vien' ? 'Nhân viên' : 'Tổng quan'}
           </div>
           <div className="header-actions">
             <div className="icon-btn"><Bell size={20} /></div>
             <div className="icon-btn"><Settings size={20} /></div>
-            <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
-              <FilePlus size={16} /> Thêm sản phẩm
-            </button>
+            {activeMenu === 'nhan-vien' ? (
+              <button className="btn btn-primary" onClick={openAddEmployeeModal}>
+                <UserPlus size={16} /> Thêm nhân viên
+              </button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+                <FilePlus size={16} /> Thêm sản phẩm
+              </button>
+            )}
           </div>
         </header>
 
@@ -1009,6 +1290,236 @@ function App() {
             </div>
           )}
 
+          {activeMenu === 'nhan-vien' && (
+            <>
+              <div className="tabs-container">
+                <div className={`tab ${activeEmployeeTab === 'danh-sach' ? 'active' : ''}`} onClick={() => setActiveEmployeeTab('danh-sach')}>
+                  <Users size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                  1. Danh sách nhân viên
+                </div>
+                <div className={`tab ${activeEmployeeTab === 'bang-luong' ? 'active' : ''}`} onClick={() => setActiveEmployeeTab('bang-luong')}>
+                  <Wallet size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                  2. Bảng lương
+                </div>
+              </div>
+
+              {activeEmployeeTab === 'danh-sach' && (
+                <div className="table-container">
+                  <div className="table-header-controls">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Tìm theo tên, mã NV, số điện thoại..."
+                      value={employeeQuery}
+                      onChange={e => setEmployeeQuery(e.target.value)}
+                    />
+                    <select className="filter-select" value={employeeFilterStatus} onChange={e => setEmployeeFilterStatus(e.target.value)}>
+                      <option value="Đang làm">Đang làm</option>
+                      <option value="Nghỉ việc">Nghỉ việc</option>
+                      <option value="Tất cả">Tất cả trạng thái</option>
+                    </select>
+                    <button className="btn btn-primary" onClick={openAddEmployeeModal}>
+                      <UserPlus size={16} /> Thêm nhân viên
+                    </button>
+                  </div>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>STT</th>
+                        <th>Mã NV</th>
+                        <th>Họ tên</th>
+                        <th>Số điện thoại</th>
+                        <th>Chức vụ</th>
+                        <th>Kiểu lương</th>
+                        <th>Mức lương</th>
+                        <th>Phụ cấp / tháng</th>
+                        <th>Trạng thái</th>
+                        <th>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEmployees.map((emp, index) => (
+                        <tr key={emp.id}>
+                          <td>{index + 1}</td>
+                          <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{emp.code || '—'}</td>
+                          <td style={{ fontWeight: 500 }}>{emp.name}</td>
+                          <td>{emp.phone || '—'}</td>
+                          <td>{emp.position || '—'}</td>
+                          <td>{getSalaryTypeLabel(emp.salaryType)}</td>
+                          <td style={{ fontWeight: 500 }}>
+                            {formatVND(emp.salaryRate)}
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}> {getRateUnit(emp.salaryType)}</span>
+                          </td>
+                          <td>{formatVND(emp.allowance)}</td>
+                          <td>
+                            <span className={`badge ${(emp.status || 'Đang làm') === 'Đang làm' ? 'green' : 'red'}`}>
+                              {emp.status || 'Đang làm'}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button className="icon-btn" onClick={() => openEditEmployeeModal(emp)}>
+                                <Edit2 size={16} />
+                              </button>
+                              <button className="icon-btn danger" onClick={() => handleDeleteEmployee(emp)}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredEmployees.length === 0 && (
+                        <tr>
+                          <td colSpan="10" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                            {employees.length === 0 ? 'Chưa có nhân viên nào. Bấm “Thêm nhân viên” để bắt đầu.' : 'Không tìm thấy nhân viên phù hợp bộ lọc.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {activeEmployeeTab === 'bang-luong' && (
+                <>
+                  <div className="stats-grid">
+                    <div className="stat-card">
+                      <div className="stat-icon blue"><Users size={24} /></div>
+                      <div className="stat-info">
+                        <div className="stat-value">{payrollRows.length}</div>
+                        <div className="stat-label">Nhân viên tính lương</div>
+                      </div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-icon yellow"><Coins size={24} /></div>
+                      <div className="stat-info">
+                        <div className="stat-value">{formatVND(payrollTotals.base)}</div>
+                        <div className="stat-label">Tổng lương chính</div>
+                      </div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-icon green"><Wallet size={24} /></div>
+                      <div className="stat-info">
+                        <div className="stat-value">{formatVND(payrollTotals.allowance)}</div>
+                        <div className="stat-label">Tổng phụ cấp</div>
+                      </div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-icon red"><CalendarDays size={24} /></div>
+                      <div className="stat-info">
+                        <div className="stat-value">{formatVND(payrollTotals.total)}</div>
+                        <div className="stat-label">Quỹ lương tháng {formatPeriod(payrollPeriod)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="table-container">
+                    <div className="table-header-controls">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <CalendarDays size={16} color="var(--text-secondary)" />
+                        <input
+                          type="month"
+                          className="filter-select"
+                          style={{ padding: '8px 12px' }}
+                          value={payrollPeriod}
+                          onChange={e => setPayrollPeriod(e.target.value || getCurrentPeriod())}
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Tìm nhân viên..."
+                        value={employeeQuery}
+                        onChange={e => setEmployeeQuery(e.target.value)}
+                      />
+                      <button className="btn btn-outline" onClick={exportPayrollExcel}>
+                        <Download size={16} /> Xuất Excel
+                      </button>
+                    </div>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>STT</th>
+                          <th>Mã NV</th>
+                          <th>Họ tên</th>
+                          <th>Kiểu lương</th>
+                          <th>Mức lương</th>
+                          <th>Ngày công</th>
+                          <th>Giờ làm</th>
+                          <th>Lương chính</th>
+                          <th>Phụ cấp</th>
+                          <th style={{ color: 'var(--primary-color)' }}>Tổng lương</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollRows.map((row, index) => (
+                          <tr key={row.emp.id}>
+                            <td>{index + 1}</td>
+                            <td style={{ color: 'var(--primary-color)', fontWeight: 500 }}>{row.emp.code || '—'}</td>
+                            <td style={{ fontWeight: 500 }}>
+                              {row.emp.name}
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{row.emp.position}</div>
+                            </td>
+                            <td>
+                              {getSalaryTypeLabel(row.emp.salaryType)}
+                              {row.emp.salaryType === 'month' && (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                  Chuẩn {Number(row.emp.standardDays) || 26} ngày
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              {formatVND(row.emp.salaryRate)}
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}> {getRateUnit(row.emp.salaryType)}</span>
+                            </td>
+                            <td>
+                              <NumberCell
+                                value={row.workDays}
+                                disabled={row.emp.salaryType === 'hour'}
+                                onSave={(v) => handlePayrollChange(row.emp, 'workDays', v)}
+                              />
+                            </td>
+                            <td>
+                              <NumberCell
+                                value={row.workHours}
+                                disabled={row.emp.salaryType !== 'hour'}
+                                onSave={(v) => handlePayrollChange(row.emp, 'workHours', v)}
+                              />
+                            </td>
+                            <td style={{ fontWeight: 500 }}>{formatVND(row.baseSalary)}</td>
+                            <td>
+                              <NumberCell
+                                value={row.allowance}
+                                width="110px"
+                                onSave={(v) => handlePayrollChange(row.emp, 'allowance', v)}
+                              />
+                            </td>
+                            <td style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{formatVND(row.totalSalary)}</td>
+                          </tr>
+                        ))}
+                        {payrollRows.length === 0 && (
+                          <tr>
+                            <td colSpan="10" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                              Chưa có nhân viên nào đang làm việc để tính lương.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                    <div style={{ padding: '12px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                        {payrollRows.length} nhân viên — kỳ lương tháng {formatPeriod(payrollPeriod)}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>
+                        Tổng quỹ lương: <span style={{ color: 'var(--primary-color)', fontSize: '1.125rem' }}>{formatVND(payrollTotals.total)} đ</span>
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
         </div>
       </main>
 
@@ -1260,6 +1771,153 @@ function App() {
                 }
                 setShowEditProductModal(false);
               }}>Lưu thay đổi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Thêm / Sửa Nhân Viên */}
+      {showEmployeeModal && editEmployee && (
+        <div className="modal-overlay" onClick={() => setShowEmployeeModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{editEmployee.id ? 'Sửa Nhân Viên' : 'Thêm Nhân Viên'}</h2>
+              <button className="icon-btn" onClick={() => setShowEmployeeModal(false)}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>&times;</span>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={modalLabelStyle}>Mã nhân viên</label>
+                  <input
+                    type="text"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="VD: NV001"
+                    value={editEmployee.code}
+                    onChange={e => setEditEmployee({ ...editEmployee, code: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Họ tên <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="Nhập họ tên nhân viên"
+                    value={editEmployee.name}
+                    onChange={e => setEditEmployee({ ...editEmployee, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Số điện thoại</label>
+                  <input
+                    type="text"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="VD: 0901234567"
+                    value={editEmployee.phone}
+                    onChange={e => setEditEmployee({ ...editEmployee, phone: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Chức vụ</label>
+                  <input
+                    type="text"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="VD: Nhân viên kho"
+                    value={editEmployee.position}
+                    onChange={e => setEditEmployee({ ...editEmployee, position: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Kiểu lương</label>
+                  <select
+                    className="search-input"
+                    style={{ ...modalInputStyle, appearance: 'auto' }}
+                    value={editEmployee.salaryType}
+                    onChange={e => setEditEmployee({ ...editEmployee, salaryType: e.target.value })}
+                  >
+                    {SALARY_TYPES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Mức lương ({getRateUnit(editEmployee.salaryType)})</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="search-input"
+                    style={modalInputStyle}
+                    value={editEmployee.salaryRate}
+                    onChange={e => setEditEmployee({ ...editEmployee, salaryRate: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+                {editEmployee.salaryType === 'month' && (
+                  <div>
+                    <label style={modalLabelStyle}>Ngày công chuẩn / tháng</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="search-input"
+                      style={modalInputStyle}
+                      value={editEmployee.standardDays}
+                      onChange={e => setEditEmployee({ ...editEmployee, standardDays: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                )}
+                <div>
+                  <label style={modalLabelStyle}>Phụ cấp / tháng (đ)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="Ăn trưa, xăng xe..."
+                    value={editEmployee.allowance}
+                    onChange={e => setEditEmployee({ ...editEmployee, allowance: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Trạng thái</label>
+                  <select
+                    className="search-input"
+                    style={{ ...modalInputStyle, appearance: 'auto' }}
+                    value={editEmployee.status}
+                    onChange={e => setEditEmployee({ ...editEmployee, status: e.target.value })}
+                  >
+                    <option value="Đang làm">Đang làm</option>
+                    <option value="Nghỉ việc">Nghỉ việc</option>
+                  </select>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={modalLabelStyle}>Ghi chú</label>
+                  <input
+                    type="text"
+                    className="search-input"
+                    style={modalInputStyle}
+                    placeholder="Ghi chú thêm về nhân viên"
+                    value={editEmployee.note}
+                    onChange={e => setEditEmployee({ ...editEmployee, note: e.target.value })}
+                  />
+                </div>
+                <div style={{ gridColumn: '1 / -1', backgroundColor: '#f0f7ff', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>Cách tính lương tháng:</strong><br />
+                  {editEmployee.salaryType === 'month' && 'Lương chính = Mức lương × Ngày công thực tế ÷ Ngày công chuẩn'}
+                  {editEmployee.salaryType === 'day' && 'Lương chính = Mức lương × Số ngày công trong tháng'}
+                  {editEmployee.salaryType === 'hour' && 'Lương chính = Mức lương × Số giờ làm trong tháng'}
+                  <br />Tổng lương = Lương chính + Phụ cấp
+                </div>
+              </div>
+            </div>
+            <div className="modal-header" style={{ borderTop: '1px solid var(--border-color)', borderBottom: 'none', justifyContent: 'flex-end', gap: '12px', padding: '16px 24px' }}>
+              <button className="btn btn-outline" onClick={() => setShowEmployeeModal(false)}>Hủy</button>
+              <button className="btn btn-primary" onClick={handleSaveEmployee}>
+                <Save size={16} /> {editEmployee.id ? 'Lưu thay đổi' : 'Thêm mới'}
+              </button>
             </div>
           </div>
         </div>

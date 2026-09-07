@@ -75,6 +75,40 @@ src/
 | `items`       | array    | Danh sách sản phẩm trong phiếu              |
 | `note`        | string   | Ghi chú phiếu nhập                          |
 
+### `employees`
+| Field          | Type    | Mô tả                                                      |
+|---------------|---------|-------------------------------------------------------------|
+| `code`        | string  | Mã nhân viên (VD: `NV001`)                                  |
+| `name`        | string  | Họ tên (bắt buộc)                                            |
+| `phone`       | string  | Số điện thoại                                                |
+| `position`    | string  | Chức vụ (mặc định `'Nhân viên kho'`)                        |
+| `salaryType`  | string  | `'month'` / `'day'` / `'hour'`                              |
+| `salaryRate`  | number  | Mức lương theo kiểu lương (đ/tháng, đ/ngày hoặc đ/giờ)      |
+| `standardDays`| number  | Ngày công chuẩn/tháng, chỉ dùng khi `salaryType='month'` (mặc định 26) |
+| `allowance`   | number  | Phụ cấp mặc định mỗi tháng (ăn trưa, xăng xe...)            |
+| `status`      | string  | `'Đang làm'` / `'Nghỉ việc'`                                |
+| `note`        | string  | Ghi chú                                                      |
+
+### `payrolls`
+Mỗi document = 1 nhân viên trong 1 kỳ lương. **Document ID cố định**: `` `${period}_${employeeId}` `` (VD: `2026-09_aBcD1234`) — ghi bằng `setDoc(..., { merge: true })` nên không bao giờ tạo bản ghi trùng.
+
+| Field          | Type    | Mô tả                                              |
+|---------------|---------|-----------------------------------------------------|
+| `period`      | string  | Kỳ lương dạng `YYYY-MM`                             |
+| `employeeId`  | string  | ID document trong `employees`                       |
+| `employeeCode`| string  | Snapshot mã NV tại thời điểm chấm công              |
+| `employeeName`| string  | Snapshot họ tên                                      |
+| `position`    | string  | Snapshot chức vụ                                     |
+| `salaryType`  | string  | Snapshot kiểu lương                                  |
+| `salaryRate`  | number  | Snapshot mức lương                                   |
+| `standardDays`| number  | Snapshot ngày công chuẩn                             |
+| `workDays`    | number  | Số ngày công thực tế (kiểu `month` / `day`)         |
+| `workHours`   | number  | Số giờ làm thực tế (kiểu `hour`)                    |
+| `allowance`   | number  | Phụ cấp kỳ này (mặc định lấy từ `employees.allowance`) |
+| `baseSalary`  | number  | Lương chính đã tính                                  |
+| `totalSalary` | number  | Tổng lương = `baseSalary + allowance`               |
+| `updatedAt`   | number  | Timestamp (ms) lần sửa cuối                          |
+
 ---
 
 ## Business Logic quan trọng
@@ -99,6 +133,25 @@ Trạng thái (status):
 
 > ⚠️ **NGUYÊN TẮC BẮT BUỘC**: Hàm `handleInventoryUpload` KHÔNG ĐƯỢC phép thêm sản phẩm mới vào database. Chỉ `batch.update()`, không có `batch.set()`.
 
+### Công thức tính lương (`calcPayroll`)
+
+```
+Lương chính (baseSalary):
+  salaryType = 'month' → salaryRate × workDays / standardDays   (standardDays mặc định 26)
+  salaryType = 'day'   → salaryRate × workDays
+  salaryType = 'hour'  → salaryRate × workHours
+  → làm tròn bằng Math.round()
+
+Phụ cấp (allowance):
+  → lấy từ bản ghi payroll của kỳ nếu đã nhập, ngược lại lấy mặc định từ employees.allowance
+
+Tổng lương (totalSalary) = baseSalary + allowance
+```
+
+- `calcPayroll` là hàm thuần (pure), khai báo ngoài component → dễ test, không phụ thuộc state.
+- Bảng lương **chỉ tính cho nhân viên có `status = 'Đang làm'`**.
+- Mỗi ô chấm công là component `NumberCell`, chỉ ghi Firestore khi **blur hoặc Enter** (không ghi mỗi lần gõ phím).
+
 ---
 
 ## Các trang / Menu chính
@@ -109,6 +162,7 @@ Trạng thái (status):
 | Sản phẩm      | `san-pham`        | Danh sách sản phẩm, chỉnh sửa inline     |
 | Nhà cung cấp  | `nha-cung-cap`    | CRUD nhà cung cấp                         |
 | Kho hàng      | —                 | Chưa implement                            |
+| Nhân viên     | `nhan-vien`       | Quản lý nhân viên + tính lương, 2 tab con |
 
 ### Tab con trong "Nhập hàng"
 
@@ -116,6 +170,13 @@ Trạng thái (status):
 |-----------------------------|---------------|-----------------------------------------------|
 | Kiểm tra & Làm phiếu nhập   | `phieu-nhap`  | Bảng SP cần nhập, chọn và tạo phiếu          |
 | Lịch sử phiếu nhập          | `lich-su`     | Danh sách phiếu đã tạo, expandable detail    |
+
+### Tab con trong "Nhân viên" (state key `activeEmployeeTab`)
+
+| Tab                  | State key    | Mô tả                                                        |
+|---------------------|--------------|---------------------------------------------------------------|
+| Danh sách nhân viên  | `danh-sach`  | CRUD nhân viên, lọc theo trạng thái, tìm theo tên/mã/SĐT      |
+| Bảng lương           | `bang-luong` | Chọn kỳ lương (`<input type="month">`), chấm công, xuất Excel |
 
 ---
 
@@ -189,3 +250,5 @@ git push
 4. **Deploy 2 bước**: Phải chạy cả `git push` (source) và `npm run deploy` (production site).
 5. **File App.jsx rất lớn (~1350 dòng)**: Cẩn thận khi edit, đảm bảo không làm hỏng JSX structure.
 6. **Tất cả ID trong Firestore là string**: Luôn dùng `String(id)` khi reference document.
+7. **Bảng lương dùng `setDoc` với ID cố định**, KHÔNG dùng `addDoc` — nếu đổi sang `addDoc` sẽ tạo bản ghi trùng mỗi lần sửa ô chấm công.
+8. **Xóa nhân viên không xóa bản ghi `payrolls` cũ**: các bản ghi đó trở thành lịch sử mồ côi nhưng vô hại vì `payrollRows` luôn duyệt từ danh sách `employees`.
