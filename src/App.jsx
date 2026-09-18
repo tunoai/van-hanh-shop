@@ -12,6 +12,8 @@ import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch, 
 import { db } from './firebase.js';
 import './index.css';
 
+const SAIGON_SOURCE = 'Kho Sai Gon';
+
 const InlineEdit = ({ value, onSave, placeholder }) => {
   const [val, setVal] = useState(value || '');
   
@@ -744,27 +746,54 @@ function App() {
     return <span className="badge green">{status}</span>;
   };
 
+  // Kho Sai Gon: SKU dạng HB_xxx -> tra tồn của SKU gốc xxx
+  const isSaiGonSource = (source) => (source || '').trim().toLowerCase() === SAIGON_SOURCE.toLowerCase();
+  const stockBySku = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => { if (p.sku) map.set(p.sku.trim().toUpperCase(), p.stock); });
+    return map;
+  }, [products]);
+  const getBaseSkuInfo = (sku) => {
+    const s = (sku || '').trim();
+    if (!s.toUpperCase().startsWith('HB_')) return { baseSku: '', baseStock: null };
+    const baseSku = s.slice(3);
+    const baseStock = stockBySku.get(baseSku.toUpperCase());
+    return { baseSku, baseStock: baseStock ?? null };
+  };
+  const showBaseSkuCols = isSaiGonSource(filterSource);
+  const previewHasBase = !!receiptPreviewData?.items?.some(p => p.baseSku !== undefined);
+
   // Helper: tải file Excel từ dữ liệu phiếu nhập
   const downloadReceiptExcel = (receiptCode, createdDate, createdTime, items, totalQty) => {
+    const hasBase = items.some(p => p.baseSku !== undefined);
+    const header = hasBase
+      ? ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'SKU gốc', 'Tồn SKU gốc', 'Số lượng nhập', 'Trạng thái']
+      : ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'Số lượng nhập', 'Trạng thái'];
+    const lastCol = header.length - 1;
     const wsData = [
       [`PHIẾU NHẬP HÀNG - ${receiptCode}`],
       [`Ngày tạo: ${createdDate} ${createdTime}`],
       [],
-      ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'Số lượng nhập', 'Trạng thái']
+      header
     ];
     items.forEach((p, i) => {
-      wsData.push([i + 1, p.sku, p.name, p.source, p.stock, p.importQty, p.status]);
+      wsData.push(hasBase
+        ? [i + 1, p.sku, p.name, p.source, p.stock, p.baseSku || '', p.baseStock ?? '', p.importQty, p.status]
+        : [i + 1, p.sku, p.name, p.source, p.stock, p.importQty, p.status]);
     });
     wsData.push([]);
-    wsData.push(['', '', '', '', 'TỔNG CỘNG:', totalQty, '']);
+    const totalRow = new Array(header.length).fill('');
+    totalRow[lastCol - 2] = 'TỔNG CỘNG:';
+    totalRow[lastCol - 1] = totalQty;
+    wsData.push(totalRow);
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [
-      { wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 15 }
-    ];
+    ws['!cols'] = hasBase
+      ? [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 }]
+      : [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 15 }];
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -866,7 +895,9 @@ function App() {
                     <button className="btn btn-primary" onClick={() => {
                       const selectedProducts = selectedForReceipt.map(id => {
                         const p = products.find(prod => prod.id === id);
-                        return p ? { sku: p.sku, name: p.name, source: p.source || '', stock: p.stock, importQty: p.importQty, status: p.status } : null;
+                        if (!p) return null;
+                        const item = { sku: p.sku, name: p.name, source: p.source || '', stock: p.stock, importQty: p.importQty, status: p.status };
+                        return showBaseSkuCols ? { ...item, ...getBaseSkuInfo(p.sku) } : item;
                       }).filter(Boolean);
                       if (selectedProducts.length === 0) { showToast('Không có sản phẩm nào được chọn!', 'error'); return; }
                       const now = new Date();
@@ -942,13 +973,17 @@ function App() {
                       <th>Tên sản phẩm</th>
                       <th>Nguồn nhập</th>
                       <th>Tồn hiện tại</th>
+                      {showBaseSkuCols && <th>SKU gốc</th>}
+                      {showBaseSkuCols && <th>Tồn SKU gốc</th>}
                       <th style={{ color: '#e67e22', fontWeight: 600 }}>Số bán MAX</th>
                       <th style={{ color: 'var(--primary-color)' }}>Số chốt nhập</th>
                       <th>Trạng thái</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProductsTab2.map(p => (
+                    {filteredProductsTab2.map(p => {
+                      const base = showBaseSkuCols ? getBaseSkuInfo(p.sku) : null;
+                      return (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>
                           <input 
@@ -961,6 +996,8 @@ function App() {
                         <td style={{ fontWeight: 500 }}>{p.name}</td>
                         <td>{p.source}</td>
                         <td>{p.stock}</td>
+                        {base && <td style={{ fontWeight: 500 }}>{base.baseSku || '—'}</td>}
+                        {base && <td><strong>{base.baseStock ?? '—'}</strong></td>}
                         <td>
                           <strong style={{ color: '#e67e22', fontSize: '1.125rem' }}>{p.maxSales || 0}</strong>
                         </td>
@@ -969,10 +1006,11 @@ function App() {
                         </td>
                         <td>{getStatusBadge(p.status)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {products.filter(p => p.importQty > 0 || p.status === 'Cần nhập' || p.status === 'Sắp cần nhập').length === 0 && (
                       <tr>
-                        <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                        <td colSpan={showBaseSkuCols ? 10 : 8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
                           Không có sản phẩm nào cần nhập lúc này.
                         </td>
                       </tr>
@@ -1077,6 +1115,8 @@ function App() {
                                       <th>Tên sản phẩm</th>
                                       <th>Nguồn nhập</th>
                                       <th>Tồn lúc tạo</th>
+                                      {(receipt.items || []).some(i => i.baseSku !== undefined) && <th>SKU gốc</th>}
+                                      {(receipt.items || []).some(i => i.baseSku !== undefined) && <th>Tồn SKU gốc</th>}
                                       <th>Số lượng nhập</th>
                                       <th>Trạng thái</th>
                                     </tr>
@@ -1089,6 +1129,8 @@ function App() {
                                         <td style={{ fontWeight: 500 }}>{item.name}</td>
                                         <td>{item.source}</td>
                                         <td>{item.stock}</td>
+                                        {(receipt.items || []).some(i => i.baseSku !== undefined) && <td>{item.baseSku || '—'}</td>}
+                                        {(receipt.items || []).some(i => i.baseSku !== undefined) && <td>{item.baseStock ?? '—'}</td>}
                                         <td><strong>{item.importQty}</strong></td>
                                         <td>{item.status === 'Cần nhập' ? <span className="badge red">{item.status}</span> : item.status === 'Sắp cần nhập' ? <span className="badge yellow">{item.status}</span> : <span className="badge green">{item.status}</span>}</td>
                                       </tr>
@@ -1947,6 +1989,8 @@ function App() {
                     <th>Tên sản phẩm</th>
                     <th>Nguồn nhập</th>
                     <th>Tồn hiện tại</th>
+                    {previewHasBase && <th>SKU gốc</th>}
+                    {previewHasBase && <th>Tồn SKU gốc</th>}
                     <th style={{ color: 'var(--primary-color)' }}>Số lượng nhập</th>
                     <th>Trạng thái</th>
                   </tr>
@@ -1959,8 +2003,10 @@ function App() {
                       <td style={{ fontWeight: 500 }}>{item.name}</td>
                       <td>{item.source}</td>
                       <td>{item.stock}</td>
+                      {previewHasBase && <td style={{ fontWeight: 500 }}>{item.baseSku || '—'}</td>}
+                      {previewHasBase && <td><strong>{item.baseStock ?? '—'}</strong></td>}
                       <td>
-                        <input 
+                        <input
                           type="number" 
                           className="editable-input" 
                           style={{ width: '80px', backgroundColor: '#f0f7ff', borderColor: 'var(--primary-color)', fontWeight: 600, fontSize: '1rem', textAlign: 'center' }}

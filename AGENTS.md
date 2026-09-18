@@ -186,6 +186,7 @@ Các cột hiện tại: `☐ | SKU | Tên SP | Nguồn nhập | Tồn hiện t�
 
 - Chỉ hiển thị sản phẩm có `importQty > 0` HOẶC status là `'Cần nhập'` / `'Sắp cần nhập'`
 - Filter: tìm kiếm SKU/tên, lọc trạng thái (multi-select), lọc nguồn nhập
+- Khi lọc nguồn = `Kho Sai Gon`: thêm 2 cột `SKU gốc | Tồn SKU gốc` sau "Tồn hiện tại". SKU gốc = SKU bỏ tiền tố `HB_` (chỉ `HB_`), tồn tra theo SKU gốc trong `products` (không có → `—`). Phiếu nhập tạo lúc đang lọc Kho Sai Gon sẽ lưu `baseSku`/`baseStock` vào items và xuất thêm 2 cột này trong Excel.
 
 ## Bảng trong tab "Sản phẩm"
 
