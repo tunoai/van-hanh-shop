@@ -767,8 +767,8 @@ function App() {
   const downloadReceiptExcel = (receiptCode, createdDate, createdTime, items, totalQty) => {
     const hasBase = items.some(p => p.baseSku !== undefined);
     const header = hasBase
-      ? ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'SKU gốc', 'Tồn SKU gốc', 'Số lượng nhập', 'Trạng thái']
-      : ['STT', 'SKU', 'Tên sản phẩm', 'Nguồn nhập', 'Tồn hiện tại', 'Số lượng nhập', 'Trạng thái'];
+      ? ['STT', 'SKU', 'Tên sản phẩm', 'Tồn hiện tại', 'SKU gốc', 'Tồn SKU gốc', 'Số lượng nhập']
+      : ['STT', 'SKU', 'Tên sản phẩm', 'Tồn hiện tại', 'Số lượng nhập'];
     const lastCol = header.length - 1;
     const wsData = [
       [`PHIẾU NHẬP HÀNG - ${receiptCode}`],
@@ -778,19 +778,19 @@ function App() {
     ];
     items.forEach((p, i) => {
       wsData.push(hasBase
-        ? [i + 1, p.sku, p.name, p.source, p.stock, p.baseSku || '', p.baseStock ?? '', p.importQty, p.status]
-        : [i + 1, p.sku, p.name, p.source, p.stock, p.importQty, p.status]);
+        ? [i + 1, p.sku, p.name, p.stock, p.baseSku || '', p.baseStock ?? '', p.importQty]
+        : [i + 1, p.sku, p.name, p.stock, p.importQty]);
     });
     wsData.push([]);
     const totalRow = new Array(header.length).fill('');
-    totalRow[lastCol - 2] = 'TỔNG CỘNG:';
-    totalRow[lastCol - 1] = totalQty;
+    totalRow[lastCol - 1] = 'TỔNG CỘNG:';
+    totalRow[lastCol] = totalQty;
     wsData.push(totalRow);
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = hasBase
-      ? [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 }]
-      : [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 15 }];
+      ? [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 15 }]
+      : [{ wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 15 }];
     ws['!merges'] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } }
