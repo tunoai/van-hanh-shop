@@ -651,6 +651,101 @@ function App() {
     reader.readAsArrayBuffer(file);
   };
 
+  const maxSalesFileInputRef = React.useRef(null);
+
+  // Tải số bán MAX: chỉ cập nhật maxSales theo SKU, KHÔNG thêm sản phẩm mới
+  const handleMaxSalesUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const resetInput = () => { if (maxSalesFileInputRef.current) maxSalesFileInputRef.current.value = ''; };
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      const norm = (h) => String(h).toUpperCase().replace(/["'\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+
+      // Tìm dòng tiêu đề có cột Mã SP / SKU (trong 15 dòng đầu)
+      let headerRow = -1, skuIdx = -1;
+      for (let r = 0; r < Math.min(rows.length, 15) && headerRow === -1; r++) {
+        const idx = (rows[r] || []).map(norm).findIndex(h =>
+          h === 'MÃ SP' || h === 'MA SP' || h.includes('SKU') || h.includes('MÃ SẢN PHẨM') || h.includes('MA SAN PHAM'));
+        if (idx !== -1) { headerRow = r; skuIdx = idx; }
+      }
+      if (headerRow === -1) {
+        showToast('Không tìm thấy cột "Mã SP" hoặc "SKU" trong file!', 'error');
+        resetInput();
+        return;
+      }
+
+      // Tìm cột số xuất / bán MAX ở dòng tiêu đề hoặc 2 dòng phía trên (tiêu đề gộp ô)
+      let qtyIdx = -1;
+      for (let r = headerRow; r >= Math.max(0, headerRow - 2) && qtyIdx === -1; r--) {
+        qtyIdx = (rows[r] || []).map(norm).findIndex((h, i) => i !== skuIdx &&
+          (h.includes('XUẤT') || h.includes('XUAT') || h.includes('MAX') || h.includes('SỐ BÁN') || h.includes('SO BAN')));
+      }
+      if (qtyIdx === -1) {
+        showToast('Không tìm thấy cột "Số lượng xuất" / "Số bán MAX" trong file!', 'error');
+        resetInput();
+        return;
+      }
+
+      const parseNum = (v) => {
+        if (typeof v === 'number') return Math.round(v);
+        const n = parseFloat(String(v).replace(/[,\s]/g, ''));
+        return isNaN(n) ? null : Math.round(n);
+      };
+
+      const updates = new Map(); // SKU trùng trong file → lấy dòng cuối
+      let skippedCount = 0;
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const cols = rows[i] || [];
+        const sku = String(cols[skuIdx] || '').trim();
+        if (!sku) continue;
+        const maxSales = parseNum(cols[qtyIdx]);
+        if (maxSales === null) continue;
+        const p = products.find(p => p.sku === sku);
+        if (!p) { skippedCount++; continue; }
+        updates.set(p.id, { p, maxSales });
+      }
+
+      if (updates.size === 0) {
+        showToast('Không tìm thấy Mã SKU nào trùng khớp trong hệ thống!', 'error');
+        resetInput();
+        return;
+      }
+
+      try {
+        const entries = [...updates.values()];
+        // Firestore giới hạn 500 thao tác / batch
+        for (let s = 0; s < entries.length; s += 450) {
+          const batch = writeBatch(db);
+          entries.slice(s, s + 450).forEach(({ p, maxSales }) => {
+            const rec = recalculateProduct({ ...p, maxSales, isManual: false });
+            batch.update(doc(db, 'products', String(p.id)), {
+              maxSales,
+              isManual: false,
+              importQty: rec.importQty,
+              status: rec.status
+            });
+          });
+          await batch.commit();
+        }
+        let msg = `Đã cập nhật số bán MAX cho ${updates.size} sản phẩm!`;
+        if (skippedCount > 0) msg += ` (Bỏ qua ${skippedCount} SKU không có trong hệ thống)`;
+        showToast(msg);
+        setShowAddModal(false);
+      } catch (err) {
+        console.error(err);
+        showToast('Có lỗi xảy ra khi lưu dữ liệu lên Firebase!', 'error');
+      }
+      resetInput();
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   const inventoryFileInputRef = React.useRef(null);
 
   const handleInventoryUpload = (e) => {
@@ -1598,6 +1693,19 @@ function App() {
                 <div className="action-card-buttons">
                   <button className="btn btn-primary" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }} onClick={() => inventoryFileInputRef.current && inventoryFileInputRef.current.click()}>Tải số tồn kho</button>
                   <input type="file" accept=".csv, .xlsx, .xls" style={{ display: 'none' }} ref={inventoryFileInputRef} onChange={handleInventoryUpload} />
+                </div>
+              </div>
+
+              <div className="modal-divider">HOẶC</div>
+
+              <div className="action-card">
+                <div className="action-card-info">
+                  <h4>Chỉ cập nhật Số bán MAX</h4>
+                  <p>Đọc cột Mã SP và cột Số lượng xuất bán hàng, ghi vào Số bán MAX. Không thêm sản phẩm mới, không đổi tồn kho.</p>
+                </div>
+                <div className="action-card-buttons">
+                  <button className="btn btn-primary" style={{ backgroundColor: '#e67e22', borderColor: '#e67e22' }} onClick={() => maxSalesFileInputRef.current && maxSalesFileInputRef.current.click()}>Tải số bán MAX</button>
+                  <input type="file" accept=".csv, .xlsx, .xls" style={{ display: 'none' }} ref={maxSalesFileInputRef} onChange={handleMaxSalesUpload} />
                 </div>
               </div>
 
