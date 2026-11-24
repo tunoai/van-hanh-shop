@@ -69,6 +69,35 @@ const NumberCell = ({ value, onSave, disabled, width = '80px' }) => {
   );
 };
 
+// Ô sửa SKU gốc (Kho Sai Gon): ghi khi blur/Enter, Esc để hủy, để trống = quay về SKU tự động
+const BaseSkuCell = ({ value, isManual, onSave }) => {
+  const [val, setVal] = useState(value || '');
+
+  useEffect(() => {
+    setVal(value || '');
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      className="editable-input"
+      title={isManual ? 'SKU gốc sửa tay — xóa trống để quay về tự động' : 'SKU gốc tự động — bấm để sửa'}
+      placeholder="—"
+      style={{ width: '140px', fontWeight: 500, color: isManual ? 'var(--primary-color)' : undefined }}
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={() => {
+        const next = val.trim();
+        if (next !== (value || '').trim()) onSave(next);
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.target.blur();
+        if (e.key === 'Escape') { setVal(value || ''); setTimeout(() => e.target.blur(), 0); }
+      }}
+    />
+  );
+};
+
 // ===== Cấu hình lương =====
 const SALARY_TYPES = [
   { value: 'month', label: 'Theo tháng' },
@@ -450,6 +479,14 @@ function App() {
     try {
       await updateDoc(doc(db, 'products', String(id)), { note: newNote });
     } catch(err) { console.error(err); }
+  };
+
+  // Lưu SKU gốc sửa tay; chuỗi rỗng => xóa override, quay về SKU bỏ tiền tố HB_
+  const handleBaseSkuChange = async (id, newBaseSku) => {
+    try {
+      await updateDoc(doc(db, 'products', String(id)), { baseSkuOverride: newBaseSku || '' });
+      showToast(newBaseSku ? `Đã đặt SKU gốc: ${newBaseSku}` : 'Đã khôi phục SKU gốc tự động');
+    } catch(err) { console.error(err); showToast('Lỗi khi lưu SKU gốc!', 'error'); }
   };
 
   const handleSourceChange = async (id, newSource) => {
@@ -848,10 +885,14 @@ function App() {
     products.forEach(p => { if (p.sku) map.set(p.sku.trim().toUpperCase(), p.stock); });
     return map;
   }, [products]);
-  const getBaseSkuInfo = (sku) => {
-    const s = (sku || '').trim();
-    if (!s.toUpperCase().startsWith('HB_')) return { baseSku: '', baseStock: null };
-    const baseSku = s.slice(3);
+  // Ưu tiên SKU gốc sửa tay (baseSkuOverride), nếu không có thì bỏ tiền tố HB_
+  const getBaseSkuInfo = (product) => {
+    const override = (product?.baseSkuOverride || '').trim();
+    const s = (product?.sku || '').trim();
+    let baseSku = '';
+    if (override) baseSku = override;
+    else if (s.toUpperCase().startsWith('HB_')) baseSku = s.slice(3);
+    if (!baseSku) return { baseSku: '', baseStock: null };
     const baseStock = stockBySku.get(baseSku.toUpperCase());
     return { baseSku, baseStock: baseStock ?? null };
   };
@@ -992,7 +1033,7 @@ function App() {
                         const p = products.find(prod => prod.id === id);
                         if (!p) return null;
                         const item = { sku: p.sku, name: p.name, source: p.source || '', stock: p.stock, importQty: p.importQty, status: p.status };
-                        return showBaseSkuCols ? { ...item, ...getBaseSkuInfo(p.sku) } : item;
+                        return showBaseSkuCols ? { ...item, ...getBaseSkuInfo(p) } : item;
                       }).filter(Boolean);
                       if (selectedProducts.length === 0) { showToast('Không có sản phẩm nào được chọn!', 'error'); return; }
                       const now = new Date();
@@ -1077,7 +1118,7 @@ function App() {
                   </thead>
                   <tbody>
                     {filteredProductsTab2.map(p => {
-                      const base = showBaseSkuCols ? getBaseSkuInfo(p.sku) : null;
+                      const base = showBaseSkuCols ? getBaseSkuInfo(p) : null;
                       return (
                       <tr key={p.id} style={{ backgroundColor: p.maxSales > 100 ? '#fff7ed' : 'transparent' }}>
                         <td>
@@ -1091,7 +1132,15 @@ function App() {
                         <td style={{ fontWeight: 500 }}>{p.name}</td>
                         <td>{p.source}</td>
                         <td>{p.stock}</td>
-                        {base && <td style={{ fontWeight: 500 }}>{base.baseSku || '—'}</td>}
+                        {base && (
+                          <td>
+                            <BaseSkuCell
+                              value={base.baseSku}
+                              isManual={!!(p.baseSkuOverride || '').trim()}
+                              onSave={(v) => handleBaseSkuChange(p.id, v)}
+                            />
+                          </td>
+                        )}
                         {base && <td><strong>{base.baseStock ?? '—'}</strong></td>}
                         <td>
                           <strong style={{ color: '#e67e22', fontSize: '1.125rem' }}>{p.maxSales || 0}</strong>
